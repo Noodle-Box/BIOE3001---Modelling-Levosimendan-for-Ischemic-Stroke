@@ -3,7 +3,7 @@
 # BIOE3001: Quantitative Methods in Biomedical Engineering
 # Tevyn Vergara | 46421201
 #
-# Main Code for Levosimendan Model for Ischemic Stroke
+# Code #2: Model Parameterization for Mark Data
 #
 ##############################################################################
 # Disclaimer: Claude Opus 5.5 was used in this assignment for:
@@ -243,16 +243,23 @@ for t in range(1, int(T // dt - 1)):
 
 time = (np.arange(0, int(T // dt)) * dt) # hrs, x-axis in real time not step number
 
-## Clinical data of parent drug and metabolites, from Table 1 data
-t_data = [24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
-levo_data = [59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-m1_data = [0,0,0,0,0.05,0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
-m2_data = [0,0,0,0,0.1,0.6,0.7,0.85,1.1,1.75,2.35,2.4,2.35,2.05,1.2,0.55,0.3]
+## TABLE 1 DATA: Clinical data of parent drug and metabolites, from Table 1 data
+T1_time = [24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
+T1_Levo = [59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+T1_m1   = [0,0,0,0,0.05,0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
+T1_m2   = [0,0,0,0,0.1,0.6,0.7,0.85,1.1,1.75,2.35,2.4,2.35,2.05,1.2,0.55,0.3]
+
+## TABLE 3 Heart Rate, Cardiac Output (Derived) and MAP 
+# Loading dose 12ug/kg at t=0 followed by 200ng/kg/min dose for 24 hrs
+T3_time = [0, 6, 12, 18, 24, 36, 48]              # hrs, time column
+T3_CI   = [2.08, 2.25, 2.83, 2.86, 2.9, 2.87, 2.84]   # L/min/m^2, cardiac index column
+T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
+T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
 
 ## Levosimendan against clinical data [1]
 plt.figure()
 plt.plot(time, CLevo)
-plt.plot(t_data, levo_data, "o")
+plt.plot(T1_time, T1_Levo, "o")
 plt.ylabel("Levosimendan Concentration (ng/mL)")
 plt.xlabel("Time (hrs)")
 plt.title("Levosimendan (Parent) vs Clinical Data")
@@ -269,7 +276,7 @@ plt.show()
 ## OR-1855 against the clinical data [1]
 plt.figure()
 plt.plot(time, C1855)
-plt.plot(t_data, m1_data, "o")
+plt.plot(T1_time, T1_m1, "o")
 plt.ylabel("OR-1855 vs DATA (ng/mL)")
 plt.xlabel("Time (hrs)")
 plt.title("OR-1855 (Inactive Metabolite) vs Clinical Data")
@@ -278,7 +285,7 @@ plt.show()
 ## OR-1896 against the clinical data [1]
 plt.figure()
 plt.plot(time, C1896)
-plt.plot(t_data, m2_data, "o")
+plt.plot(T1_time, T1_m2, "o")
 plt.ylabel("OR-1896 vs DATA (ng/mL)")
 plt.xlabel("Time (hrs)")
 plt.title("OR-1896 (Active Metabolite) vs Clinical Data")
@@ -311,13 +318,9 @@ plt.xlabel("Time (hrs)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
 
-########################## Loading Patient Data ###############################
-
-# TBA
-
 ############################## References #####################################
 # Declaration of AI use
-# [0] Anthropic, "Claude, Sonnet 5," Claude, 18 September 2026 [Online]. https://claude.ai/new
+# [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
 # Provided Table sources from Mark project context
 #
