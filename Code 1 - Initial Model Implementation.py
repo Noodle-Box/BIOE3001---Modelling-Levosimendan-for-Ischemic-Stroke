@@ -3,7 +3,7 @@
 # BIOE3001: Quantitative Methods in Biomedical Engineering
 # Tevyn Vergara | 46421201
 #
-# Code #1: Initial Model Implementation with Sensitivity Analysis
+# Code #1: Initial Model Implementation 
 #
 ##############################################################################
 # Disclaimer: Claude Opus 5.5 was used in this assignment for:
@@ -301,11 +301,6 @@ plt.ylabel("Blood Velocity (cm/s)")
 plt.xlabel("Time (hrs)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
-
-########################## Sensitivity Analysis ###############################
-
-# TBA
-
 
 ############################## References #####################################
 # Declaration of AI use

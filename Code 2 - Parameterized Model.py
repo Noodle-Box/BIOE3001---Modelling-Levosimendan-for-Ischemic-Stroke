@@ -3,7 +3,7 @@
 # BIOE3001: Quantitative Methods in Biomedical Engineering
 # Tevyn Vergara | 46421201
 #
-# Code #2: Model Parameterization for Mark Data
+# Code #2: Model Parameterization for Mark Data and Sensitivity Analysis
 #
 ##############################################################################
 # Disclaimer: Claude Opus 5.5 was used in this assignment for:
