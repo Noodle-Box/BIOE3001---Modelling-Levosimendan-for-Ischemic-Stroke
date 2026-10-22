@@ -17,20 +17,65 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+############################# Table 1 Input Data ##############################
+# [1] {Puttonen, 2008}. IV infusion, levosimendan and metabolite plasma
+# concentrations vs time
+
+## Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
+## hrs, no loading bolus. From [1].
+
+dose = 100                          # ng/kg/min, dosing infusion rate
+T_inf = 24                          # hrs, infusion duration
+C_peak = 59                         # ng/mL, max plasma concentration of infusion
+
+## Patient specific parameters
+BW = 80                             # kg, sample body weight
+# (space for Table 1 cohort demographics)
+
+
+
+## TABLE 1 DATA: Clinical data of parent drug and metabolites, from Table 1 data
+T1_time = [24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
+T1_Levo = [59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+T1_m1   = [0,0,0,0,0.05,0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
+T1_m2   = [0,0,0,0,0.1,0.6,0.7,0.85,1.1,1.75,2.35,2.4,2.35,2.05,1.2,0.55,0.3]
+
+
+############################# Table 3 Input Data ##############################
+# [3] {Álvarez, 2006}. IV loading dose + 24 h infusion, HR, CI and MAP vs time
+
+## Dosing regimen: 12 ug/kg loading dose at t = 0, followed by 200 ng/kg/min
+## constant IV infusion for 24 hrs. From [3].
+
+T3_load  = 12                       # ug/kg, loading dose at t = 0 (instant bolus)
+T3_dose  = 200                      # ng/kg/min, maintenance infusion rate
+T3_T_inf = 24                       # hrs, maintenance infusion duration
+
+## Patient specific parameters
+T3_HR0  = 83                        # bpm, baseline HR, t = 0 row of [3]
+T3_MAP0 = 84                        # mmHg, baseline MAP, t = 0 row of [3]
+T3_CI0  = 2.08                      # L/min/m^2, baseline cardiac index, t = 0 row of [3]
+# T3_BW  =                          # kg, cohort body weight (TBA from [3] demographics)
+# T3_BSA =                          # m^2, body surface area, for CI -> CO (TBA)
+
+
+
+## Clinical data
+## TABLE 3 Heart Rate, Cardiac Output (Derived) and MAP 
+T3_time = [0, 6, 12, 18, 24, 36, 48]              # hrs, time column
+T3_CI   = [2.08, 2.25, 2.83, 2.86, 2.9, 2.87, 2.84]   # L/min/m^2, cardiac index column
+T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
+T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
+
+
+#################################### Model ####################################
+
 ############################### Time Course ###################################
 ## Time course
 dt = 0.1  # hrs
 T = 300  # hrs, time course
 
-###################### Parameters: Patient & Dosing ###########################
-
-# Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
-# hrs, no loading bolus. From [1].
-
-BW = 80                             # kg, sample body weight
-dose = 100                          # ng/kg/min, dosing infusion rate
-T_inf = 24                          # hrs, infusion duration
-C_peak = 59                         # ng/mL, max plasma concentration of infusion
+####################### Parameters: Dosing Conversions ########################
 
 # Infusion conversions for main loop
 Rate_ref = dose * BW * 60           # ng/hr infusion rate whole body rate
@@ -239,31 +284,118 @@ for t in range(1, int(T // dt - 1)):
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
 
 
+########################## Model Parameterization #############################
+#
+# (commentary TBA)
+#
+#
+#
+
+
+############################ New Model Parameters #############################
+
+## Placeholders until the parameterisation is implemented
+# The "fitted" runs are copies of the initial run for now, so initial and
+# fitted lines overlap in the plots and results. The Table 3 runs need the
+# Table 3 regimen (12 ug/kg bolus + 200 ng/kg/min), so they stay as None
+# until the model can take a regimen as an input.
+
+# Table 1 regimen, fitted parameters
+CLevo_fit = CLevo                   # ng/mL
+C1855_fit = C1855                   # ng/mL
+C1896_fit = C1896                   # ng/mL
+
+# Table 3 regimen, initial and fitted parameters
+HR_T3_init,  HR_T3_fit  = None, None   # Hz
+MAP_T3_init, MAP_T3_fit = None, None   # Pa
+CO_T3_init,  CO_T3_fit  = None, None   # m^3/s
+
+## Parameter table
+# name: (initial value, units, table that sets it)
+# "Fixed" = not fitted in this code (literature, read off data, or Table 2)
+P_table = {
+    # Pharmacokinetics
+    "levo_half":  (levo_half,  "hrs",   "Fixed, lit. [1]"),
+    "T_gut":      (T_gut,      "hrs",   "Fixed, read off Table 1"),
+    "gut_rate":   (gut_rate,   "hrs",   "Table 1"),
+    "m1":         (m1,         "-",     "Table 1"),
+    "ac_rate":    (ac_rate,    "hrs",   "Table 1"),
+    "m2_half":    (m2_half,    "hrs",   "Table 1"),
+    "f0":         (f0,         "-",     "Table 3"),
+    "f2":         (f2,         "-",     "Fixed, lit. [4]"),
+    # Pharmacodynamics: heart block
+    "keo_thalf":  (keo_thalf,  "hrs",   "Table 3"),
+    "Emax_R":     (Emax_R,     "-",     "Table 3"),
+    "EC50_sys":   (EC50_sys,   "ng/mL", "Table 3"),
+    "dSVmax":     (dSVmax,     "-",     "Table 3 (CI)"),
+    "EC50_SV":    (EC50_SV,    "ng/mL", "Table 3 (CI)"),
+    "Emax_HR":    (Emax_HR,    "-",     "Table 3"),
+    "EC50_HR":    (EC50_HR,    "ng/mL", "Table 3"),
+    # Pharmacodynamics: brain block
+    "Emax_cereb": (Emax_cereb, "-",     "Fixed, Table 2 (excluded)"),
+    "EC50_cereb": (EC50_cereb, "ng/mL", "Fixed, Table 2 (excluded)"),
+}
+
+# Fitted values (placeholder: replaced by the parameterisation results)
+P_fit = {name: row[0] for name, row in P_table.items()}
+
+print("\nNew Model Parameters")
+print(f"{'Parameter':<12}{'Initial':>10}{'Fitted':>10}{'Change':>10}  {'Units':<7}Set by")
+print("-" * 78)
+for name, (P_init, units, set_by) in P_table.items():
+    change = (P_fit[name] - P_init) / P_init * 100
+    print(f"{name:<12}{P_init:>10.4g}{P_fit[name]:>10.4g}{change:>9.1f}%  {units:<7}{set_by}")
+
+
 ############################## Plot Figure ####################################
 
 time = (np.arange(0, int(T // dt)) * dt) # hrs, x-axis in real time not step number
 
-## TABLE 1 DATA: Clinical data of parent drug and metabolites, from Table 1 data
-T1_time = [24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
-T1_Levo = [59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-T1_m1   = [0,0,0,0,0.05,0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
-T1_m2   = [0,0,0,0,0.1,0.6,0.7,0.85,1.1,1.75,2.35,2.4,2.35,2.05,1.2,0.55,0.3]
+## Helper functions
 
-## TABLE 3 Heart Rate, Cardiac Output (Derived) and MAP 
-# Loading dose 12ug/kg at t=0 followed by 200ng/kg/min dose for 24 hrs
-T3_time = [0, 6, 12, 18, 24, 36, 48]              # hrs, time column
-T3_CI   = [2.08, 2.25, 2.83, 2.86, 2.9, 2.87, 2.84]   # L/min/m^2, cardiac index column
-T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
-T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
+# % change from baseline. Table 3 is compared this way so each cohort's own
+# baseline (HR0, MAP0, CI0) drops out and only the drug behaviour is compared
+def pct(y, y0):
+    return (np.array(y, dtype=float) - y0) / y0 * 100
 
-## Levosimendan against clinical data [1]
-plt.figure()
-plt.plot(time, CLevo)
-plt.plot(T1_time, T1_Levo, "o")
-plt.ylabel("Levosimendan Concentration (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("Levosimendan (Parent) vs Clinical Data")
-plt.show()
+# % change of a model curve from its own drug-naive first value
+def pct_curve(y):
+    if y is None:
+        return None
+    return pct(y, y[0])
+
+# Initial model, fitted model and data on one figure
+def plot_fit(y_init, y_fit, t_data, y_data, ylabel, title):
+    plt.figure()
+    if y_init is not None:
+        plt.plot(time, y_init, "r", label="Initial model")
+    if y_fit is not None:
+        plt.plot(time, y_fit, "b--", label="Fitted model")
+    plt.plot(t_data, y_data, "ko", label="Data")
+    plt.ylabel(ylabel)
+    plt.xlabel("Time (hrs)")
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
+## Table 1: parent drug and metabolites against clinical data [1]
+plot_fit(CLevo, CLevo_fit, T1_time, T1_Levo,
+         "Levosimendan Concentration (ng/mL)", "Table 1: Levosimendan (Parent)")
+plot_fit(C1855, C1855_fit, T1_time, T1_m1,
+         "OR-1855 Concentration (ng/mL)", "Table 1: OR-1855 (Inactive Metabolite)")
+plot_fit(C1896, C1896_fit, T1_time, T1_m2,
+         "OR-1896 Concentration (ng/mL)", "Table 1: OR-1896 (Active Metabolite)")
+
+## Table 3: heart outputs against clinical data [3], % change from baseline
+# CI = CO / BSA, so % change in CI equals % change in CO (BSA cancels)
+plot_fit(pct_curve(HR_T3_init), pct_curve(HR_T3_fit), T3_time, pct(T3_HR, T3_HR0),
+         "HR change from baseline (%)", "Table 3: Heart Rate")
+plot_fit(pct_curve(MAP_T3_init), pct_curve(MAP_T3_fit), T3_time, pct(T3_MAP, T3_MAP0),
+         "MAP change from baseline (%)", "Table 3: Mean Arterial Pressure")
+plot_fit(pct_curve(CO_T3_init), pct_curve(CO_T3_fit), T3_time, pct(T3_CI, T3_CI0),
+         "CI change from baseline (%)", "Table 3: Cardiac Index")
+
+## Model outputs with no data to fit (Table 1 regimen)
 
 ## GUT Transition of OR1855
 plt.figure()
@@ -273,43 +405,8 @@ plt.xlabel("Time (hrs)")
 plt.title("Gut Transit of OR-1855 metabolite (Time Compartment)")
 plt.show()
 
-## OR-1855 against the clinical data [1]
-plt.figure()
-plt.plot(time, C1855)
-plt.plot(T1_time, T1_m1, "o")
-plt.ylabel("OR-1855 vs DATA (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("OR-1855 (Inactive Metabolite) vs Clinical Data")
-plt.show()
-
-## OR-1896 against the clinical data [1]
-plt.figure()
-plt.plot(time, C1896)
-plt.plot(T1_time, T1_m2, "o")
-plt.ylabel("OR-1896 vs DATA (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("OR-1896 (Active Metabolite) vs Clinical Data")
-plt.show()
-
-## Pharmacodynamic outputs -- converted from SI to clinically readable units
-## just for these plots (the model itself stays in SI throughout)
-MAP_mmHg = np.array(MAP) / MMHG_TO_PA
-HR_bpm = np.array(HR) * 60
+## Cerebral blood velocity, converted from SI to cm/s just for this plot
 V_cereb_cms = np.array(V_cereb) * 100
-
-plt.figure()
-plt.plot(time, MAP_mmHg)
-plt.ylabel("MAP (mmHg)")
-plt.xlabel("Time (hrs)")
-plt.title("Mean Arterial Pressure (MAP)")
-plt.show()
-
-plt.figure()
-plt.plot(time, HR_bpm)
-plt.ylabel("HR (bpm)")
-plt.xlabel("Time (hrs)")
-plt.title("Heart Rate (HR)")
-plt.show()
 
 plt.figure()
 plt.plot(time, V_cereb_cms)
@@ -317,6 +414,51 @@ plt.ylabel("Blood Velocity (cm/s)")
 plt.xlabel("Time (hrs)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
+
+
+######################## Results of Fitted Parameters #########################
+
+# Model value at each data time (index = t / dt)
+def sample(curve, t_data):
+    idx = [int(round(t / dt)) for t in t_data]
+    return np.array(curve, dtype=float)[idx]
+
+# R^2, RMSE and normalised RMSE (RMSE / data range, so outputs in different
+# units can be compared with each other)
+def fit_metrics(y_data, y_model):
+    y_data = np.array(y_data, dtype=float)
+    residual = y_data - y_model
+    SS_res = np.sum(residual ** 2)
+    SS_tot = np.sum((y_data - y_data.mean()) ** 2)
+    R2 = 1 - SS_res / SS_tot
+    RMSE = np.sqrt(np.mean(residual ** 2))
+    NRMSE = RMSE / (y_data.max() - y_data.min())
+    return R2, RMSE, NRMSE
+
+## Comparisons: name, data times, data, initial curve, fitted curve, units
+# Table 3 leaves out the t = 0 point: it is 0 % by construction, so the model
+# always matches it and it would inflate R^2
+T3_t = T3_time[1:]
+comparisons = [
+    ("T1 Levosimendan", T1_time, T1_Levo, CLevo, CLevo_fit, "ng/mL"),
+    ("T1 OR-1855",      T1_time, T1_m1,   C1855, C1855_fit, "ng/mL"),
+    ("T1 OR-1896",      T1_time, T1_m2,   C1896, C1896_fit, "ng/mL"),
+    ("T3 HR",  T3_t, pct(T3_HR,  T3_HR0)[1:],  pct_curve(HR_T3_init),  pct_curve(HR_T3_fit),  "%"),
+    ("T3 MAP", T3_t, pct(T3_MAP, T3_MAP0)[1:], pct_curve(MAP_T3_init), pct_curve(MAP_T3_fit), "%"),
+    ("T3 CI",  T3_t, pct(T3_CI,  T3_CI0)[1:],  pct_curve(CO_T3_init),  pct_curve(CO_T3_fit),  "%"),
+]
+
+print("\nResults of Fitted Parameters")
+print(f"{'Output':<17}{'N':>3}{'R2 init':>9}{'R2 fit':>9}{'RMSE init':>11}{'RMSE fit':>10}{'NRMSE fit':>11}  Units")
+print("-" * 78)
+for name, t_d, y_d, y_i, y_f, units in comparisons:
+    if y_i is None or y_f is None:
+        print(f"{name:<17}{len(t_d):>3}   (no model run for the Table 3 regimen yet)")
+        continue
+    R2_i, RMSE_i, NRMSE_i = fit_metrics(y_d, sample(y_i, t_d))
+    R2_f, RMSE_f, NRMSE_f = fit_metrics(y_d, sample(y_f, t_d))
+    print(f"{name:<17}{len(t_d):>3}{R2_i:>9.3f}{R2_f:>9.3f}{RMSE_i:>11.3f}{RMSE_f:>10.3f}{NRMSE_f:>11.3f}  {units}")
+
 
 ############################## References #####################################
 # Declaration of AI use
