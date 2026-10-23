@@ -18,91 +18,118 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 ############################### Time Course ###################################
-## Time course
-dt = 0.1  # hrs
-T = 300  # hrs, time course
+## Time course: set in days, run in hours (all model rates are per hour)
+T_days = 12                         # days, time course (effective drug time, calibrated to Table 1)
+dt = 0.1                            # hrs, time step
+T = T_days * 24                     # hrs, time course
 
-###################### Parameters: Patient & Dosing ###########################
+############################# Parameters: Patient #############################
+# Patient-Specific Body parameters
+BW = 80                             # kg, sample body weight from [1]
+
+# Conversion macros for patient PD
+MMHG_TO_PA = 133.322                # Pa per mmHg
+ML_TO_M3 = 1e-6                     # m^3 per mL
+
+# Patient-specific PD Heart Parameters (for curing)
+HR0 = 70.0 / 60.0                   # Hz, baseline heart rate
+SV0 = 70.0 * ML_TO_M3               # m^3, baseline SV. From [7]
+MAP0 = 93.0 * MMHG_TO_PA            # Pa, Baseline MAP. From [8]
+
+# Patient-specific PD Brain Parameters (for curing)
+v_cereb0 = 0.48                     # m/s, baseline MCA velocity. From [2]
+P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [9]
+r_cereb = 0.0015                    # m, MCA radius. From [5]
+
+
+############################# Parameters: Dosing ##############################
 
 # Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
-# hrs, no loading bolus
+# no loading dose for this one
 
-BW = 80                             # kg, sample body weight
-dose = 100                          # ng/kg/min, dosing infusion rate
+dose_load = 0                       # ng/kg, loading dose at t = 0
+dose_sup = 100                      # ng/kg/min, supplementary dosing infusion rate
 T_inf = 24                          # hrs, infusion duration
-C_peak = 59                         # ng/mL, max plasma concentration of infusion
-
-# Infusion conversions for main loop
-Rate_ref = dose * BW * 60           # ng/hr infusion rate whole body rate
-
-# Infusion Rate going in during 24-hour infusion regimen
-levo_half = 0.9                                    # hrs, Levosimendan half-life, from [1]
-V = Rate_ref / ((np.log(2) / levo_half) * C_peak)  # mL, volume distribution (DERIVED)
-R = (Rate_ref / V) * dt                            # ng/mL, added per step
 
 ################### Parameters: Drug (Pharmacokinetics) #######################
 
 # Parameters: Levosimendan (Active)
-k0 = (np.log(2) / levo_half) * dt   # 1/Hrs, half-life decay
-f0 = 0.05                           # Free Fraction Levosimendan (FITTED)
+#
+# Initial drug dosing based off Table 1 dosing regimen. 
+# Levosimendan enters at constant infusion rate but constant loss clears most
+# of it on arrival. C_int is the t = 0 intercept of the line fitted to the 
+# 2–24 hr data (no sample was taken at t = 0)
+
+levo_half = 0.9                     # hrs, Levosimendan half-life, from [1]
+k0 = (np.log(2) / levo_half) * dt   # 1/Hrs, half-life decay for infusion and loading dose
+f0 = 0.05                           # Free Fraction Levosimendan (INSERT SOURCE)
+
+C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED FROM [1])
+C_int = 25.00                       # ng/mL, intercept at t=0 (CALCULATED FROM [1])
+V_kg = 132                          # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
+
+
+# Dose conversions for main loop
+R = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
+phi = C_slope / (R / dt)            # fraction of infused drug retained in plasma (DERIVED)
+L = (1 - phi) * R                   # ng/mL per step, loss during infusion
+C0_levo = C_int                     # ng/mL, initial condition (fast distribution phase)
+C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
+
 
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
 gut_rate = 66                       # hrs, gut release rate (FITTED)
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate (DERIVED)
 
+
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.0268                         # Formation Fraction from Levo (FITTED)
+m1 = 0.05                           # Formation Fraction from Levo (FITTED)
+Vm_ratio = 0.53                     # parent-to-metabolite volume ratio (FITTED FROM [1]
+
 
 # Parameters: OR-1896 Metabolite (Active)
 m2_half = 7.7                       # Hrs, OR-1896 half-life (FITTED)
 k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, half-life decay (DERIVED)
 f2 = 0.61                           # Free Fraction OR-1896. From [4]
 
+
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
 ac_rate = 5                         # Hrs, Acetylation rate (FITTED)
 kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation (DERIVED)
 
+
 ################### Parameters: Body (Pharmacodynamics) #######################
 
 # PD is kept in SI (Pa, m^3, Pa.s/m^3, m/s, Hz)
+# Patient baselines (HR0, SV0, MAP0, v_cereb0, P_brain, r_cereb) are at the top
 
-# Conversion macros
-MMHG_TO_PA = 133.322                # Pa per mmHg
-ML_TO_M3 = 1e-6                     # m^3 per mL
-
-# Hill Kinetics for drug binding to affect stroke volume
-SV0 = 70.0 * ML_TO_M3               # m^3, baseline SV. From [7]
+# Hill Kinetics: drug effect on stroke volume
 dSVmax = 0.167                      # fractional max SV rise. From [3]
 EC50_SV = 0.497                     # ng/mL (FITTED)
 
-# Hill Kinetics for drug binding to affect heart rate [6]
-HR0 = 70.0 / 60.0                   # Hz, baseline heart rate
+# Hill Kinetics drug effect on heart rate [6]
 Emax_HR = 0.171                     # fractional max HR rise. From [2][3]
 EC50_HR = 0.78                      # ng/mL, direct Hill term (FITTED)
 
-# Hill Kinetics for drug binding to dilating system "body" vasculature
+# Hill Kinetics: drug dilation of the systemic (body) vasculature
 Emax_R = 0.358                      # fractional max R_sys drop (FITTED)
 EC50_sys = 0.498                    # ng/mL (FITTED)
 
 # Derivation for baseline systemic resistance
-# (how hard blood is pushed through vessels)
+# (how strong vessels oppose blood flow)
 # Resistance = (pressure / flow), both baseline
-MAP0 = 93.0 * MMHG_TO_PA            # Pa, Baseline MAP. From [8]
 CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output (DERIVED)
 R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance (DERIVED)
 
 ### Parameters: Brain Block (MAP, Ce_eff --> V_cereb)
 
-P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [9]
-r_cereb = 0.0015                    # m, MCA radius. From [5]
 A_cereb = np.pi * (r_cereb) ** 2    # m^2, MCA cross-section
 
 # Derivation for baseline cerebral resistance, similar to R_sys
 # Resistance = pressure / flow, both baseline
 
-v_cereb0 = 0.48                     # m/s, baseline MCA velocity. From [2]
-CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion (DERIVED)
+CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure (DERIVED)
 Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
@@ -119,7 +146,7 @@ k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 #
 # Takes effective drug from dose and lags it to Ce_eff
 # Then, runs three Hill Kinetic responses:
-# System resistance, stroke volume and heart rate.
+# Systemic resistance, stroke volume and heart rate.
 # Outputs MAP and Ce_eff --> Brain
 #
 def heart_block(Ce_val, Ce_eff_prev):
@@ -143,15 +170,19 @@ def cerebral_block(Ce_val, MAP_v):
     return Cerebral_R, Blood_V
 
 
+
 ######################### Initial Conditions ##################################
 
-CLevo = [None] * int(T // dt)       # ng/mL, Levosimendan
+CLevo = [None] * int(T // dt)       # ng/mL, Levosimendan (total parent)
+Cdose_load = [None] * int(T // dt)       # ng/mL, dose_loading dose part of the parent
 CGut  = [None] * int(T // dt)       # ng/mL, Gut transit compartment
 C1855 = [None] * int(T // dt)       # ng/mL, OR-1855
 C1896 = [None] * int(T // dt)       # ng/mL, OR-1896
 
-CLevo[0] = 0  # ng/mL
-CLevo[1] = 0  # ng/mL
+CLevo[0] = C0_levo + C_dose_load  # ng/mL
+CLevo[1] = C0_levo + C_dose_load  # ng/mL
+Cdose_load[0] = C_dose_load  # ng/mL
+Cdose_load[1] = C_dose_load  # ng/mL
 CGut[0]  = 0  # ng/mL
 CGut[1]  = 0  # ng/mL
 C1855[0] = 0  # ng/mL
@@ -176,6 +207,8 @@ HR[1]      = 0
 V_cereb[0] = 0
 V_cereb[1] = 0
 
+
+
 ############################# Main Loop #######################################
 
 # t = 0 and t = 1, matching CLevo[0:2] -- Ce and Ce_eff are drug-naive, so
@@ -192,12 +225,22 @@ for t in range(1, int(T // dt - 1)):
 
     ### Levosimendan (ACTIVE) ###
 
-    # Constant infusion for the first 24 hours, so infusion and elimination run
-    # together and levosimendan plateaus. After 24 hours, decay only.
+    # dose_loading dose part: given at t = 0, cleared by first-order decay from the
+    # start (the infusion loss L only acts on the infused drug)
+    dCdose_load = -k0 * Cdose_load[t]
+    Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
+
+    # During the 24 hour infusion, a constant loss L clears drug as it arrives,
+    # so levosimendan rises slowly in a straight line. After 24 hours, the
+    # infusion stops and the body clears it by first-order decay.
+    # Form = cleared drug sent to the gut (OR-1855 route), scaled into the
+    # metabolite volume.
     if t * dt < T_inf:
-        dCLevo = R - k0 * CLevo[t]
+        dCLevo = R - L + dCdose_load
+        Form = m1 * Vm_ratio * (L + k0 * Cdose_load[t])
     else:
         dCLevo = -k0 * CLevo[t]
+        Form = m1 * Vm_ratio * k0 * CLevo[t]
     CLevo[t + 1] = CLevo[t] + dCLevo
 
     ### Gut Transit Compartment (time capture) ###
@@ -207,7 +250,7 @@ for t in range(1, int(T // dt - 1)):
     else:
         Rel = kg * CGut[t]
 
-    dCGut = m1 * k0 * CLevo[t] - Rel
+    dCGut = Form - Rel
     CGut[t + 1] = CGut[t] + dCGut
 
     ### OR-1855 (INACTIVE Metabolite) ###
@@ -239,40 +282,42 @@ for t in range(1, int(T // dt - 1)):
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
 
 
+
+
 ############################## Plot Figure ####################################
 
-time = (np.arange(0, int(T // dt)) * dt) # hrs, x-axis in real time not step number
+time = (np.arange(0, int(T // dt)) * dt) / 24 # days, x-axis in real time not step number
 
 ## Levosimendan
 plt.figure()
 plt.plot(time, CLevo)
 plt.ylabel("Levosimendan Concentration (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("Levosimendan (Parent) vs Clinical Data")
+plt.xlabel("Time (days)")
+plt.title("Concentration of Levosimendan (Parent)")
 plt.show()
 
 ## GUT Transition of OR1855
 plt.figure()
 plt.plot(time, CGut)
 plt.ylabel("Gut Concentration (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("Gut Transit of OR-1855 metabolite (Time Compartment)")
+plt.xlabel("Time (days)")
+plt.title("Gut Transit of OR-1855 metabolite")
 plt.show()
 
 ## OR-1855 against the clinical data [1]
 plt.figure()
 plt.plot(time, C1855)
 plt.ylabel("OR-1855 vs DATA (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("OR-1855 (Inactive Metabolite) vs Clinical Data")
+plt.xlabel("Time (days)")
+plt.title("OR-1855 (Inactive Metabolite)")
 plt.show()
 
 ## OR-1896 against the clinical data [1]
 plt.figure()
 plt.plot(time, C1896)
 plt.ylabel("OR-1896 vs DATA (ng/mL)")
-plt.xlabel("Time (hrs)")
-plt.title("OR-1896 (Active Metabolite) vs Clinical Data")
+plt.xlabel("Time (days)")
+plt.title("OR-1896 (Active Metabolite)")
 plt.show()
 
 ## Pharmacodynamic outputs -- converted from SI to clinically readable units
@@ -284,23 +329,24 @@ V_cereb_cms = np.array(V_cereb) * 100
 plt.figure()
 plt.plot(time, MAP_mmHg)
 plt.ylabel("MAP (mmHg)")
-plt.xlabel("Time (hrs)")
+plt.xlabel("Time (days)")
 plt.title("Mean Arterial Pressure (MAP)")
 plt.show()
 
 plt.figure()
 plt.plot(time, HR_bpm)
 plt.ylabel("HR (bpm)")
-plt.xlabel("Time (hrs)")
+plt.xlabel("Time (days)")
 plt.title("Heart Rate (HR)")
 plt.show()
 
 plt.figure()
 plt.plot(time, V_cereb_cms)
 plt.ylabel("Blood Velocity (cm/s)")
-plt.xlabel("Time (hrs)")
+plt.xlabel("Time (days)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
+
 
 ############################## References #####################################
 # Declaration of AI use

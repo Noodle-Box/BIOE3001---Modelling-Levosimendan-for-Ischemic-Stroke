@@ -32,14 +32,11 @@ C_peak = 59                         # ng/mL, max plasma concentration of infusio
 BW = 80                             # kg, sample body weight
 # (space for Table 1 cohort demographics)
 
-
-
 ## TABLE 1 DATA: Clinical data of parent drug and metabolites, from Table 1 data
-T1_time = [24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
-T1_Levo = [59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-T1_m1   = [0,0,0,0,0.05,0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
-T1_m2   = [0,0,0,0,0.1,0.6,0.7,0.85,1.1,1.75,2.35,2.4,2.35,2.05,1.2,0.55,0.3]
-
+T1_time = [2, 4, 8, 12, 24, 25, 26, 28, 30, 36, 37, 38, 40, 44, 48, 60, 72, 96, 144, 192, 240]
+T1_Levo = [32.5, 28.5, 34, 40, 59, 22.4, 10.4, 4.1, 1.12, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+T1_m1   = [0, 0, 0, 0, 0, 0, 0, 0, 0.05, 0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.95, 1.5, 0.7, 0.35, 0.15]
+T1_m2   = [0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0.6, 0.7, 0.85, 1.1, 1.75, 2.35, 2.4, 2.35, 2.05, 1.2, 0.55, 0.3]
 
 ############################# Table 3 Input Data ##############################
 # [3] {Álvarez, 2006}. IV loading dose + 24 h infusion, HR, CI and MAP vs time
@@ -57,8 +54,6 @@ T3_MAP0 = 84                        # mmHg, baseline MAP, t = 0 row of [3]
 T3_CI0  = 2.08                      # L/min/m^2, baseline cardiac index, t = 0 row of [3]
 # T3_BW  =                          # kg, cohort body weight (TBA from [3] demographics)
 # T3_BSA =                          # m^2, body surface area, for CI -> CO (TBA)
-
-
 
 ## Clinical data
 ## TABLE 3 Heart Rate, Cardiac Output (Derived) and MAP 
