@@ -338,8 +338,7 @@ plt.show()
 # Declaration of AI use
 # [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
-# Provided Table sources from Mark project context
-#
+
 # Full references details are in reference manager
 #
 # Table 1.
@@ -352,7 +351,6 @@ plt.show()
 # [3] {Álvarez, 2006}
 #
 # Others:
-#
 # [4] {Antila, 2004}
 # [5] {Robinson, 2026}
 # [6] {Kashou, 2022}
