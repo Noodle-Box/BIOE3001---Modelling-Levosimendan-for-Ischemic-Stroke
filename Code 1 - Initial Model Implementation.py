@@ -34,7 +34,7 @@ dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
-# Patient-Specific Body parameters
+# Patient-Specific Body parameters (Reference for dose, used for later Code 2 and 3)
 BW = 80                             # kg, sample body weight from [1],[10]
 
 # Conversion macros for patient PD
