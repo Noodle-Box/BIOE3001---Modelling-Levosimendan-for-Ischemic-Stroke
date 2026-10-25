@@ -42,8 +42,10 @@ P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
 r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
 
 ############################# Parameters: Dosing ##############################
-# Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
-# no loading dose for this one
+# Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24 hrs
+# No loading dose
+# Usual range: 0.05 - 0.2ug/kg/min
+# From [16]
 
 dose_load = 0                       # ng/kg, loading dose at t = 0
 dose_sup = 100                      # ng/kg/min, supplementary dosing infusion rate
@@ -53,19 +55,20 @@ T_inf = 24                          # hrs, infusion duration
 
 # Parameters: Levosimendan (Active)
 #
-# Initial drug dosing based off Table 1 dosing regimen. 
+# Initial drug dosing based off Table 1 dosing regimen since Safer Care Victora [16] 
+# has similar dosing regimen to source
+#
 # Levosimendan enters at constant infusion rate but constant loss clears most
 # of it on arrival. C_int is the t = 0 intercept of the line fitted to the 
 # 2–24 hr data (no sample was taken at t = 0)
 
-levo_half = 0.9                     # hrs, Levosimendan half-life, From [1]
+levo_half = 0.9                     # hrs, Levosimendan half-life. From [1]
 k0 = (np.log(2) / levo_half) * dt   # 1/Hrs, half-life decay for infusion and loading dose
-f0 = 0.05                           # Free Fraction Levosimendan. From [4]
+f0 = 0.03                           # Free Fraction Levosimendan. From [4]
 
 C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED FROM [1])
 C_int = 25.00                       # ng/mL, intercept at t=0 (CALCULATED FROM [1])
 V_kg = 132                          # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
-
 
 # Dose conversions for main loop
 R = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
@@ -74,23 +77,19 @@ L = (1 - phi) * R                   # ng/mL per step, loss during infusion
 C0_levo = C_int                     # ng/mL, initial condition (fast distribution phase)
 C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
-
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
 gut_rate = 53                       # hrs, gut release rate. From [13]
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate (DERIVED)
 
-
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                           # Formation Fraction from Levo. From [4]
+m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
 Vm_ratio = 0.5                      # parent-to-metabolite volume ratio (FITTED FROM [1]
-
 
 # Parameters: OR-1896 Metabolite (Active)
 m2_half = 7.7                       # Hrs, OR-1896 half-life (FITTED)
 k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, half-life decay (DERIVED)
-f2 = 0.63                           # Free Fraction OR-1896. From [1], [4]
-
+f2 = 0.61                           # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
 ac_rate = 9.6                       # Hrs, Acetylation rate. From [13]
@@ -199,8 +198,6 @@ HR[1]      = 0
 V_cereb[0] = 0
 V_cereb[1] = 0
 
-
-
 ############################# Main Loop #######################################
 
 # t = 0 and t = 1, matching CLevo[0:2] -- Ce and Ce_eff are drug-naive, so
@@ -246,13 +243,11 @@ for t in range(1, int(T // dt - 1)):
     CGut[t + 1] = CGut[t] + dCGut
 
     ### OR-1855 (INACTIVE Metabolite) ###
-
     # Formed by gut metabolism, lost from acetylation (1896) and self decay
     dC1855 = Rel - kac * C1855[t]
     C1855[t + 1] = C1855[t] + dC1855
 
     ### OR-1896 (ACTIVE Metabolite) ###
-
     # Formed by acetylation and self decay
     dC1896 = kac * C1855[t] - k2 * C1896[t]
     C1896[t + 1] = C1896[t] + dC1896
@@ -260,10 +255,10 @@ for t in range(1, int(T // dt - 1)):
     ### Active Drug Concentration (PK Output)
     Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-    ### Heart (Mass Transfer System) ###
+    ### Heart PD (Mass Transfer System) ###
     (Ce_eff[t + 1], R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1]) = heart_block(Ce[t], Ce_eff[t])
 
-    ### Cerebral Vasculature (Mass Transfer System) ###
+    ### Cerebral Vasculature PD (Mass Transfer System) ###
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
 
 
@@ -332,7 +327,6 @@ plt.xlabel("Time (days)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
 
-
 ############################## References #####################################
 # Declaration of AI use
 # [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
@@ -364,3 +358,4 @@ plt.show()
 # [13] {Bertin, 2026}
 # [14] {Slawsky, 2000}
 # [15] {Mirza, 2024}
+# [16] {SafeCareVictoria, 2018}
