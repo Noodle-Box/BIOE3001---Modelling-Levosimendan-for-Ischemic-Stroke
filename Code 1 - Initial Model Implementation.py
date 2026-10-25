@@ -39,11 +39,9 @@ MAP0 = 105.0 * MMHG_TO_PA           # Pa, Baseline MAP. From [11]
 # Patient-specific PD Brain Parameters (for curing)
 v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
 P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
-r_cereb = 0.0015                    # m, MCA radius. From [5] (COME BACK TO THIS)
-
+r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
 
 ############################# Parameters: Dosing ##############################
-
 # Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
 # no loading dose for this one
 
@@ -98,23 +96,21 @@ f2 = 0.63                           # Free Fraction OR-1896. From [1], [4]
 ac_rate = 9.6                       # Hrs, Acetylation rate. From [13]
 kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation (DERIVED)
 
-
 ################### Parameters: Body (Pharmacodynamics) #######################
-
-# PD is kept in SI (Pa, m^3, Pa.s/m^3, m/s, Hz)
-# Patient baselines (HR0, SV0, MAP0, v_cereb0, P_brain, r_cereb) are at the top
+# PD is kept in SI for easy conversion
+# Patient baselines are defined at top
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.167                      # fractional max SV rise. From [3]
-EC50_SV = 0.497                     # ng/mL (FITTED)
+dSVmax = 0.28                       # %, maximum SV increase from Levosimendan. From [14]
+EC50_SV = 0.497                     # ng/mL (Fitted)
 
-# Hill Kinetics drug effect on heart rate [6]
-Emax_HR = 0.171                     # fractional max HR rise. From [2][3]
-EC50_HR = 0.78                      # ng/mL, direct Hill term (FITTED)
+# Hill Kinetics drug effect on heart rate
+Emax_HR = 0.11                      # %, maximum HR increase from Levosimendan. From [2][3]
+EC50_HR = 0.57                      # ng/mL, Free Ce hill kinetic term. Derived from [2]
 
 # Hill Kinetics: drug dilation of the systemic (body) vasculature
-Emax_R = 0.358                      # fractional max R_sys drop (FITTED)
-EC50_sys = 0.498                    # ng/mL (FITTED)
+Emax_R = 0.4                        # fractional max R_sys drop. (Fitted)
+EC50_sys = 0.498                    # ng/mL (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -134,13 +130,12 @@ Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
 # Hill kinetics for drug binding to cerebral vasculature resistance
-Emax_cereb = 0.405                  # fractional max R_cereb drop (FITTED)
-EC50_cereb = 0.5                    # ng/mL (FITTED)
+Emax_cereb = 0.405                  # fractional max R_cereb drop (Fitted)
+EC50_cereb = 0.5                    # ng/mL (Fitted)
 
 # Delay between plasma Ce and drug effect at tissue
-keo_thalf = 6.0                     # hrs, compartment-effect time delay (FITTED)
+keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
 k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
-
 
 ### Heart (Mass Transfer System) ###
 #
@@ -158,7 +153,6 @@ def heart_block(Ce_val, Ce_eff_prev):
     MAP_v = CO_v * R_sys_v
     return Ce_eff_v, R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
-
 ### Cerebral Vasculature (Mass Transfer System) ###
 #
 # Takes lagged effective drug and MAP (both from the heart block)
@@ -169,20 +163,18 @@ def cerebral_block(Ce_val, MAP_v):
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
-
-
 ######################### Initial Conditions ##################################
 
 CLevo = [None] * int(T // dt)       # ng/mL, Levosimendan (total parent)
-Cdose_load = [None] * int(T // dt)       # ng/mL, dose_loading dose part of the parent
+Cdose_load = [None] * int(T // dt)  # ng/mL, dose_loading dose part of the parent
 CGut  = [None] * int(T // dt)       # ng/mL, Gut transit compartment
 C1855 = [None] * int(T // dt)       # ng/mL, OR-1855
 C1896 = [None] * int(T // dt)       # ng/mL, OR-1896
 
 CLevo[0] = C0_levo + C_dose_load  # ng/mL
 CLevo[1] = C0_levo + C_dose_load  # ng/mL
-Cdose_load[0] = C_dose_load  # ng/mL
-Cdose_load[1] = C_dose_load  # ng/mL
+Cdose_load[0] = C_dose_load       # ng/mL
+Cdose_load[1] = C_dose_load       # ng/mL
 CGut[0]  = 0  # ng/mL
 CGut[1]  = 0  # ng/mL
 C1855[0] = 0  # ng/mL
@@ -269,26 +261,17 @@ for t in range(1, int(T // dt - 1)):
     Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
     ### Heart (Mass Transfer System) ###
-    (
-        Ce_eff[t + 1],
-        R_sys[t + 1],
-        SV[t + 1],
-        HR[t + 1],
-        CO[t + 1],
-        MAP[t + 1],
-    ) = heart_block(Ce[t], Ce_eff[t])
+    (Ce_eff[t + 1], R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1]) = heart_block(Ce[t], Ce_eff[t])
 
     ### Cerebral Vasculature (Mass Transfer System) ###
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
-
-
 
 
 ############################## Plot Figure ####################################
 
 time = (np.arange(0, int(T // dt)) * dt) / 24 # days, x-axis in real time not step number
 
-## Levosimendan
+## Levosimendan Concentration 
 plt.figure()
 plt.plot(time, CLevo)
 plt.ylabel("Levosimendan Concentration (ng/mL)")
@@ -304,7 +287,7 @@ plt.xlabel("Time (days)")
 plt.title("Gut Transit of OR-1855 metabolite")
 plt.show()
 
-## OR-1855 against the clinical data [1]
+## OR-1855 Concentration 
 plt.figure()
 plt.plot(time, C1855)
 plt.ylabel("OR-1855 vs DATA (ng/mL)")
@@ -312,7 +295,7 @@ plt.xlabel("Time (days)")
 plt.title("OR-1855 (Inactive Metabolite)")
 plt.show()
 
-## OR-1896 against the clinical data [1]
+## OR-1896 Concentration 
 plt.figure()
 plt.plot(time, C1896)
 plt.ylabel("OR-1896 vs DATA (ng/mL)")
@@ -320,12 +303,12 @@ plt.xlabel("Time (days)")
 plt.title("OR-1896 (Active Metabolite)")
 plt.show()
 
-## Pharmacodynamic outputs -- converted from SI to clinically readable units
-## just for these plots (the model itself stays in SI throughout)
+## Pharmacodynamic outputs with SI conversions
 MAP_mmHg = np.array(MAP) / MMHG_TO_PA
 HR_bpm = np.array(HR) * 60
 V_cereb_cms = np.array(V_cereb) * 100
 
+## MAP 
 plt.figure()
 plt.plot(time, MAP_mmHg)
 plt.ylabel("MAP (mmHg)")
@@ -333,6 +316,7 @@ plt.xlabel("Time (days)")
 plt.title("Mean Arterial Pressure (MAP)")
 plt.show()
 
+## Heart Rate
 plt.figure()
 plt.plot(time, HR_bpm)
 plt.ylabel("HR (bpm)")
@@ -340,6 +324,7 @@ plt.xlabel("Time (days)")
 plt.title("Heart Rate (HR)")
 plt.show()
 
+## Blood Velocity through the Middle Cerebral Artery (MCA M1)
 plt.figure()
 plt.plot(time, V_cereb_cms)
 plt.ylabel("Blood Velocity (cm/s)")
@@ -376,4 +361,6 @@ plt.show()
 # [10] {Böhm, 2012}
 # [11] {Miller, 2021}
 # [12] {Hood, 2023}
-# [13] Bertin, 2026}
+# [13] {Bertin, 2026}
+# [14] {Slawsky, 2000}
+# [15] {Mirza, 2024}
