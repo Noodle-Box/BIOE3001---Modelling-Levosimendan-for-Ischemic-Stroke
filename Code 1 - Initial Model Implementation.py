@@ -18,28 +18,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 ############################### Time Course ###################################
-## Time course: set in days, run in hours (all model rates are per hour)
+## Time course: set in days (runs in hrs for better computation accuracy)
 T_days = 12                         # days, time course (effective drug time, calibrated to Table 1)
 dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
 # Patient-Specific Body parameters
-BW = 80                             # kg, sample body weight from [1]
+BW = 80                             # kg, sample body weight from [1],[10]
 
 # Conversion macros for patient PD
 MMHG_TO_PA = 133.322                # Pa per mmHg
 ML_TO_M3 = 1e-6                     # m^3 per mL
 
 # Patient-specific PD Heart Parameters (for curing)
-HR0 = 70.0 / 60.0                   # Hz, baseline heart rate
-SV0 = 70.0 * ML_TO_M3               # m^3, baseline SV. From [7]
-MAP0 = 93.0 * MMHG_TO_PA            # Pa, Baseline MAP. From [8]
+HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [10]
+SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11]
+MAP0 = 105.0 * MMHG_TO_PA           # Pa, Baseline MAP. From [11]
 
 # Patient-specific PD Brain Parameters (for curing)
-v_cereb0 = 0.48                     # m/s, baseline MCA velocity. From [2]
-P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [9]
-r_cereb = 0.0015                    # m, MCA radius. From [5]
+v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
+P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
+r_cereb = 0.0015                    # m, MCA radius. From [5] (COME BACK TO THIS)
 
 
 ############################# Parameters: Dosing ##############################
@@ -60,9 +60,9 @@ T_inf = 24                          # hrs, infusion duration
 # of it on arrival. C_int is the t = 0 intercept of the line fitted to the 
 # 2–24 hr data (no sample was taken at t = 0)
 
-levo_half = 0.9                     # hrs, Levosimendan half-life, from [1]
+levo_half = 0.9                     # hrs, Levosimendan half-life, From [1]
 k0 = (np.log(2) / levo_half) * dt   # 1/Hrs, half-life decay for infusion and loading dose
-f0 = 0.05                           # Free Fraction Levosimendan (INSERT SOURCE)
+f0 = 0.05                           # Free Fraction Levosimendan. From [4]
 
 C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED FROM [1])
 C_int = 25.00                       # ng/mL, intercept at t=0 (CALCULATED FROM [1])
@@ -79,23 +79,23 @@ C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
-gut_rate = 66                       # hrs, gut release rate (FITTED)
+gut_rate = 53                       # hrs, gut release rate. From [13]
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate (DERIVED)
 
 
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                           # Formation Fraction from Levo (FITTED)
-Vm_ratio = 0.53                     # parent-to-metabolite volume ratio (FITTED FROM [1]
+m1 = 0.05                           # Formation Fraction from Levo. From [4]
+Vm_ratio = 0.5                      # parent-to-metabolite volume ratio (FITTED FROM [1]
 
 
 # Parameters: OR-1896 Metabolite (Active)
 m2_half = 7.7                       # Hrs, OR-1896 half-life (FITTED)
 k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, half-life decay (DERIVED)
-f2 = 0.61                           # Free Fraction OR-1896. From [4]
+f2 = 0.63                           # Free Fraction OR-1896. From [1], [4]
 
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 5                         # Hrs, Acetylation rate (FITTED)
+ac_rate = 9.6                       # Hrs, Acetylation rate. From [13]
 kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation (DERIVED)
 
 
@@ -373,3 +373,7 @@ plt.show()
 # [7] {Khalil, 2019}
 # [8] {DeMers, 2023}
 # [9] {Munakomi, 2026}
+# [10] {Böhm, 2012}
+# [11] {Miller, 2021}
+# [12] {Hood, 2023}
+# [13] Bertin, 2026}
