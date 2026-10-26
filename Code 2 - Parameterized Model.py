@@ -26,7 +26,12 @@ from SALib.analyze import sobol
 # FALSE: Just parameterisation of Code #1
 # TRUE: Both paramterisation and sensitivity analysis observing Cerebral Blood Flow (V_cereb)
 
-run_sensitivity = False                 # BOOLEAN, CHANGE WHEN NEEDED
+run_sensitivity = False             # BOOLEAN, CHANGE WHEN NEEDED
+
+
+###############################################################################
+###################### Section 1: Model Implemetation #########################
+###############################################################################
 
 ############################# Table 1 Input Data ##############################
 # Levosimendan, OR-1855 and OR-1896
@@ -160,9 +165,9 @@ Emax_HR = 0.11                           # %, maximum HR increase from Levosimen
 # Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
 # Values fitted but parameters supported by [3] and [18]
-p_HR = 6                            # parent potency on HR and vessels (Fitted)
-keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
-k_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
+p_HR = 6                                 # parent potency on HR and vessels (Fitted)
+keo_HR_thalf = 6                         # hrs, fast effect delay for HR and vessels (Fitted)
+k_HR = (np.log(2)/keo_HR_thalf)*dt       # 1/hrs, pre-multiplied by dt
 
 # Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
 Emax_R = 0.4                             # fractional max R_sys and R_cereb drop. (Fitted)
@@ -391,16 +396,19 @@ def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
     ax.set_xlabel("Time (hrs)")
     ax.set_title(title)
     ax.legend()
+    
+    
+    
+###############################################################################
+###################### Section 2: Model Parameterisation ######################
+###############################################################################
 
-########################## Model Parameterisation #############################
 # One parameter set fits both studies. Each part of the model is fitted to its
 # own dataset, then the fitted parts are combined into one model. From [17]
 #
 # 1. PK parameters fitted to Table 1 (Table 1 regimen). The PD parameters do
 #    not affect Table 1, so they stay at their initial values here
 # 2. PD parameters fitted to Table 3 (Table 3 regimen), with the fitted PK fixed.
-#    Unidentifiable PD parameters are held at their Code 1 values (P_fixed)
-# 3. Fitted PK + PD combined into one parameter set, params_fit
 #
 # least_squares with bounds keeps fractions within 0-1 and rates positive. From [17]
 
@@ -571,7 +579,10 @@ for y_i, y_f, ylabel, title in code1_plots:
     plt.legend()
     plt.show()
 
-############################ Sensitivity Analysis #############################
+###############################################################################
+###################### Section 3: Sensitivity Analysis ########################
+###############################################################################
+
 # Sobol (global, variance-based) sensitivity analysis of the parameterised model. From [17]
 # All parameters in P_names (fitted and fixed) are varied together within -20 % to
 # +20 % of their parameterised values, with the model run on the Table 1 regimen.

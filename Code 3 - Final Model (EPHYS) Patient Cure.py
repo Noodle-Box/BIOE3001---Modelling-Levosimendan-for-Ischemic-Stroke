@@ -20,6 +20,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+############################# EPHYS Data Path #################################
+
+# Change path for marking/usage here please:
+
+###############################################################################
+###################### Section 1: Model Implemetation #########################
+###############################################################################
+
 ####################### Dose Scheduling and Time Steps ########################
 ## Time course: set in days (runs in hrs for better computation accuracy)
 
@@ -97,6 +105,7 @@ V_kg = 132                          # mL/kg, parent volume of distribution (BEHA
 
 # Dose conversions for main loop (dose-scaled as in Code 2, so any infusion rate
 # can be used for the patient regimen; identical to Code 1 at 100 ng/kg/min)
+
 R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
 dose_ref = 100                      # ng/kg/min, Table 1 dose that C_slope and C0_levo were measured at [1]
 phi = C_slope / (dose_ref * 60 / V_kg) # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
@@ -106,21 +115,21 @@ C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
-gut_rate = 65.9                     # hrs, gut release rate (Parameterized). Initial 53 from [13]
+gut_rate = 65.9                     # hrs, gut release rate (Parameterized)
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
 
 # Parameters: OR-1855 Metabolite (Inactive)
 m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
-Vm_ratio = 0.5275                   # parent-to-metabolite volume ratio (Parameterized). Fitted to [1]
+Vm_ratio = 0.5275                   # parent-to-metabolite volume ratio (Parameterized)
 
 # Parameters: OR-1896 Metabolite (Active)
-m2_half = 7.642                     # Hrs, OR-1896 half-life (Parameterized). Fitted to [1]
+m2_half = 7.642                     # Hrs, OR-1896 half-life (Parameterized)
 k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, half-life decay (DERIVED)
 f2 = 0.61                           # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 4.951                     # Hrs, acetylation rate (Parameterized). Initial 9.6 from [13]
-kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation as half life(DERIVED)
+ac_rate = 4.951                     # Hrs, acetylation rate (Parameterized). 
+kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation as half life (DERIVED)
 
 ################### Parameters: Body (Pharmacodynamics) #######################
 # PD is kept in SI for easy conversion
@@ -133,10 +142,10 @@ EC50 = 0.5                          # ng/mL, shared EC50 (Fitted)
 dSVmax = 0.28                       # %, maximum SV increase from Levosimendan. From [14]
 
 # Hill Kinetics: drug effect on heart rate
-Emax_HR = 0.153                     # %, maximum HR increase from Levosimendan (Parameterized). Fitted to [3]
+Emax_HR = 0.153                     # %, maximum HR increase from Levosimendan (Parameterized)
 
 # Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
-Emax_R = 0.3675                     # fractional max R_sys and R_cereb drop (Parameterized). Fitted to [3]
+Emax_R = 0.3675                     # fractional max R_sys and R_cereb drop (Parameterized)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -156,7 +165,7 @@ Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
 # Delay between plasma Ce and drug effect at tissue (stroke volume)
-keo_thalf = 13.85                   # hrs, compartment-effect time delay (Parameterized). Fitted to [3]
+keo_thalf = 13.85                   # hrs, compartment-effect time delay (Parameterized)
 k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 
 # Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
@@ -345,6 +354,27 @@ plt.ylabel("Blood Velocity through MCA (cm/s)")
 plt.xlabel("Time (days)")
 plt.title("Cerebral Blood Flow Velocity")
 plt.show()
+
+
+###############################################################################
+###################### Section 2: Unpacking EPHYS Data ########################
+###############################################################################
+
+
+
+
+
+
+###############################################################################
+###################### Section 3: Curing the Patients #########################
+###############################################################################
+
+
+# NOTES: At least 2 dosing regimens
+# Cure at least 4 patients
+#
+# Hypertension: Stroke vs No Stroke
+# Normal tension: Stroke vs No Stroke
 
 ############################## References #####################################
 # Declaration of AI use
