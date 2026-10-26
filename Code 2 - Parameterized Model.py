@@ -357,14 +357,13 @@ def sample(curve, t_data):
     idx = [int(round(t / dt)) for t in t_data]
     return np.array(curve, dtype=float)[idx]
 
-# R^2 and RMSE from [17]. NRMSE = RMSE / data range, to compare outputs with different units
+# R^2 and RMSE. From [17]
 def fit_metrics(y_data, y_model):
     y_data = np.array(y_data, dtype=float)
     residual = y_data - y_model
     R2 = 1 - np.sum(residual ** 2) / np.sum((y_data - y_data.mean()) ** 2)
     RMSE = np.sqrt(np.mean(residual ** 2))
-    NRMSE = RMSE / (y_data.max() - y_data.min())
-    return R2, RMSE, NRMSE
+    return R2, RMSE
 
 # Initial model, fitted model and data on one subplot. From [17]
 def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
@@ -465,23 +464,27 @@ for i, name in enumerate(P_names):
     on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
     print(f"{name:<11}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{P_SE[i]:>10.3g}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
 
-## Fit quality: R^2, RMSE and NRMSE before and after parameterisation. From [17]
+## Fit quality: R^2 and RMSE before and after parameterisation. From [17]
+# Table 3 in its original units: model % change applied to the Table 3 cohort baseline
+def to_T3_units(y_model, y0_data):
+    return y0_data * (1 + pct_curve(y_model) / 100)
+
 comparisons = [
     ("T1 Levosimendan", T1_time, T1_Levo,    CLevo,             CLevo_fit,             "ng/mL"),
     ("T1 OR-1855",      T1_time, T1_m1,      C1855,             C1855_fit,             "ng/mL"),
     ("T1 OR-1896",      T1_time, T1_m2,      C1896,             C1896_fit,             "ng/mL"),
-    ("T3 HR",           T3_t,    T3_HR_pct,  pct_curve(HR_T3),  pct_curve(HR_T3_fit),  "%"),
-    ("T3 MAP",          T3_t,    T3_MAP_pct, pct_curve(MAP_T3), pct_curve(MAP_T3_fit), "%"),
-    ("T3 CI",           T3_t,    T3_CI_pct,  pct_curve(CO_T3),  pct_curve(CO_T3_fit),  "%"),
+    ("T3 HR",  T3_t, T3_HR[1:],  to_T3_units(HR_T3, T3_HR0),   to_T3_units(HR_T3_fit, T3_HR0),   "bpm"),
+    ("T3 MAP", T3_t, T3_MAP[1:], to_T3_units(MAP_T3, T3_MAP0), to_T3_units(MAP_T3_fit, T3_MAP0), "mmHg"),
+    ("T3 CI",  T3_t, T3_CI[1:],  to_T3_units(CO_T3, T3_CI0),   to_T3_units(CO_T3_fit, T3_CI0),   "L/min/m^2"),
 ]
 
 print("\nFit Quality (initial -> fitted)")
-print(f"{'Output':<17}{'N':>3}{'R2 init':>9}{'R2 fit':>9}{'RMSE init':>11}{'RMSE fit':>10}{'NRMSE fit':>11}  Units")
-print("-" * 78)
+print(f"{'Output':<17}{'N':>3}{'R2 init':>9}{'R2 fit':>9}{'RMSE init':>11}{'RMSE fit':>10}  Units")
+print("-" * 70)
 for name, t_d, y_d, y_i, y_f, units in comparisons:
-    R2_i, RMSE_i, _ = fit_metrics(y_d, sample(y_i, t_d))
-    R2_f, RMSE_f, NRMSE_f = fit_metrics(y_d, sample(y_f, t_d))
-    print(f"{name:<17}{len(t_d):>3}{R2_i:>9.3f}{R2_f:>9.3f}{RMSE_i:>11.3f}{RMSE_f:>10.3f}{NRMSE_f:>11.3f}  {units}")
+    R2_i, RMSE_i = fit_metrics(y_d, sample(y_i, t_d))
+    R2_f, RMSE_f = fit_metrics(y_d, sample(y_f, t_d))
+    print(f"{name:<17}{len(t_d):>3}{R2_i:>9.3f}{R2_f:>9.3f}{RMSE_i:>11.3f}{RMSE_f:>10.3f}  {units}")
 
 ############################## Plot Figure ####################################
 
@@ -497,12 +500,13 @@ fig.suptitle("Table 1: Levosimendan and Metabolites")
 plt.tight_layout()
 plt.show()
 
-## Figure 2: Table 3 data [3] vs initial and fitted model (Table 3 regimen)
+## Figure 2: Table 3 data [3] vs initial and fitted model (Table 3 regimen),
+## model % change applied to the Table 3 cohort baseline
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
-plot_fit(ax[0], pct_curve(HR_T3), pct_curve(HR_T3_fit), T3_t, T3_HR_pct,
-         "HR change from baseline (%)", "Heart Rate")
-plot_fit(ax[1], pct_curve(MAP_T3), pct_curve(MAP_T3_fit), T3_t, T3_MAP_pct,
-         "MAP change from baseline (%)", "Mean Arterial Pressure")
+plot_fit(ax[0], to_T3_units(HR_T3, T3_HR0), to_T3_units(HR_T3_fit, T3_HR0), T3_time, T3_HR,
+         "HR (bpm)", "Heart Rate")
+plot_fit(ax[1], to_T3_units(MAP_T3, T3_MAP0), to_T3_units(MAP_T3_fit, T3_MAP0), T3_time, T3_MAP,
+         "MAP (mmHg)", "Mean Arterial Pressure")
 for a in ax:
     a.set_xlim(0, 2 * T3_time[-1])          # hrs, data window plus the same again
 fig.suptitle("Table 3: Heart Rate and MAP")
