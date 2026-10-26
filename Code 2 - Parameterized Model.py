@@ -17,6 +17,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
+from SALib.sample import saltelli
+from SALib.analyze import sobol
 
 ############################# Table 1 Input Data ##############################
 # [1] {Puttonen, 2008}. IV infusion, levosimendan and metabolite plasma
@@ -143,14 +145,17 @@ ac_rate = 9.6                            # Hrs, acetylation rate. From [13]
 # PD is kept in SI for easy conversion
 # Patient baselines are defined at top
 
+# Shared Hill EC50: one free Ce for half-maximal effect on SV, HR, R_sys and R_cereb
+EC50 = 0.5                               # ng/mL, shared EC50 (Fitted)
+
 # Hill Kinetics: drug effect on stroke volume
 dSVmax = 0.28                            # %, maximum SV increase from Levosimendan. From [14]
-EC50_SV = 0.497                          # ng/mL (Fitted)
 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                           # %, maximum HR increase from Levosimendan. From [2][3]
-EC50_HR = 0.57                           # ng/mL, Free Ce hill kinetic term. Derived from [2]
 
+
+# CLEAN THIS UP
 # Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
 # both respond faster and mostly to the parent drug. Only SV uses the slow Ce_eff
 # (values from PD Fit Experiments, held fixed)
@@ -159,7 +164,6 @@ keo_HR_thalf = 6                         # hrs, HR effect-site delay
 
 # Hill Kinetics: drug dilation of the systemic (body) vasculature
 Emax_R = 0.4                             # fractional max R_sys drop. (Fitted)
-EC50_sys = 0.498                         # ng/mL (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -180,7 +184,6 @@ R_cereb0 = CPP0 / Q_cereb0               # Pa.s/m^3, baseline cerebral resistanc
 
 # Hill kinetics for drug binding to cerebral vasculature resistance
 Emax_cereb = 0.405                       # fractional max R_cereb drop (Fitted)
-EC50_cereb = EC50_sys                    # ng/mL, shared vascular EC50 (tied to EC50_sys)
 
 # Delay between plasma Ce and drug effect at tissue (stroke volume)
 keo_thalf = 10                           # hrs, compartment-effect time delay (Fitted)
@@ -192,24 +195,26 @@ keo_thalf = 10                           # hrs, compartment-effect time delay (F
 
 P_names = ["gut_rate", "Vm_ratio", "ac_rate", "m2_half",   # PK, Table 1
            "f0", "keo_thalf",                              # PD, Table 3
-           "Emax_R", "EC50_sys", "dSVmax", "EC50_SV", "Emax_HR", "EC50_HR"]
+           "Emax_R", "EC50", "dSVmax", "Emax_HR",
+           "p_HR", "keo_HR_thalf"]                          # PD model structure (fixed)
 
 params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
            f0, keo_thalf,
-           Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR]
+           Emax_R, EC50, dSVmax, Emax_HR,
+           p_HR, keo_HR_thalf]
 
 ### Heart (Mass Transfer System) ###
 #
 # Takes effect-site drug Ce_eff and runs three Hill Kinetic responses:
 # Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff).
-# P_HB = [Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR] (fitted values)
+# P_HB = [Emax_R, EC50, dSVmax, Emax_HR] (fitted values, EC50 shared by every effect)
 # Outputs MAP --> Brain
 #
 def heart_block(Ce_eff_v, Ce_HR_v, P_HB):
-    Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR = P_HB
-    R_sys_v = R_sys0 * (1 - Emax_R * Ce_HR_v / (EC50_sys + Ce_HR_v))
-    SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50_SV + Ce_eff_v))
-    HR_v = HR0 * (1 + Emax_HR * Ce_HR_v / (EC50_HR + Ce_HR_v))
+    Emax_R, EC50, dSVmax, Emax_HR = P_HB
+    R_sys_v = R_sys0 * (1 - Emax_R * Ce_HR_v / (EC50 + Ce_HR_v))
+    SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50 + Ce_eff_v))
+    HR_v = HR0 * (1 + Emax_HR * Ce_HR_v / (EC50 + Ce_HR_v))
     CO_v = SV_v * HR_v
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
@@ -218,7 +223,7 @@ def heart_block(Ce_eff_v, Ce_HR_v, P_HB):
 #
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
-# EC50_v = EC50_sys (shared vascular EC50, so v_cereb does not dip below baseline)
+# EC50_v = shared EC50 (same as the heart block, so v_cereb does not dip below baseline)
 # Equations from [5].
 def cerebral_block(Ce_val, MAP_v, EC50_v):
     Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50_v + Ce_val))
@@ -237,7 +242,8 @@ def simulate(params, regimen):
 
     ### Unpack parameters and regimen ###
     gut_rate, Vm_ratio, ac_rate, m2_half, f0, keo_thalf = params[0:6]
-    P_HB = params[6:12]                 # heart block PD parameters
+    P_HB = params[6:10]                 # heart block PD parameters
+    p_HR, keo_HR_thalf = params[10:12]  # fast effect site (HR and vessels)
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
     ### Rate constants (pre-multiplied by dt) ###
@@ -403,16 +409,18 @@ N_PK = 4                                # first 4 entries of P_names are PK (Tab
 ## Bounds, same order as P_names (physical limits only)
 P_lower = [0.5, 0.01, 0.5, 0.5,         # hrs, -, hrs, hrs
            0.001, 0.1,                  # -, hrs
-           0, 0.001, 0, 0.001, 0, 0.001]
+           0, 0.001, 0, 0,
+           1, 0.1]
 P_upper = [200, 10, 200, 200,
            1, 72,
-           1, 10, 1, 10, 1, 10]
+           1, 10, 1, 1,
+           50, 72]
 
 ## Table 1: each curve divided by its own data range, so all three carry equal weight
 T1_range = [np.ptp(T1_Levo), np.ptp(T1_m1), np.ptp(T1_m2)]  # ng/mL, max - min
 
 ## PD parameters held fixed (not identifiable from Table 3, see PD Fit Experiments)
-P_fixed = ["f0", "EC50_sys", "dSVmax", "EC50_SV", "EC50_HR"]
+P_fixed = ["f0", "EC50", "dSVmax", "p_HR", "keo_HR_thalf"]
 PD_names = P_names[N_PK:]
 PD_free = [n for n in PD_names if n not in P_fixed]
 i_free = [P_names.index(n) for n in PD_free]
@@ -483,17 +491,17 @@ P_SE = list(std_err(fit_PK)) + [SE_PD.get(n, np.nan) for n in PD_names]   # nan 
 ######################## Results of Fitted Parameters #########################
 
 ## Parameter table: initial vs fitted, standard error, and bound check
-P_units = ["hrs", "-", "hrs", "hrs", "-", "hrs", "-", "ng/mL", "-", "ng/mL", "-", "ng/mL"]
+P_units = ["hrs", "-", "hrs", "hrs", "-", "hrs", "-", "ng/mL", "-", "-", "-", "hrs"]
 
 print("\nFitted Model Parameters")
-print(f"{'Parameter':<11}{'Initial':>9}{'Fitted':>10}{'SE':>10}{'Change':>9}  {'Units':<7}Set by")
-print("-" * 70)
+print(f"{'Parameter':<13}{'Initial':>9}{'Fitted':>10}{'SE':>10}{'Change':>9}  {'Units':<7}Set by")
+print("-" * 72)
 for i, name in enumerate(P_names):
     change = (params_fit[i] - params0[i]) / params0[i] * 100
     set_by = "Table 1" if i < N_PK else ("Fixed" if name in P_fixed else "Table 3")
     SE_str = "-" if name in P_fixed else f"{P_SE[i]:.3g}"
     on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
-    print(f"{name:<11}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{SE_str:>10}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
+    print(f"{name:<13}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{SE_str:>10}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
 
 ## Fit quality: R^2 and RMSE before and after parameterisation. From [17]
 # Table 3 in its original units: model % change applied to the Table 3 cohort baseline
@@ -564,6 +572,72 @@ for y_i, y_f, ylabel, title in code1_plots:
     plt.xlabel("Time (days)")
     plt.title(title)
     plt.legend()
+    plt.show()
+
+############################ Sensitivity Analysis #############################
+# Sobol (global, variance-based) sensitivity analysis of the parameterised model. From [17]
+# All parameters in P_names (fitted and fixed) are varied together within -20 % to
+# +20 % of their parameterised values, with the model run on the Table 1 regimen.
+# Each run returns 4 scalar outputs, so one set of samples covers every output.
+#
+# S1 = share of the output variance from that parameter alone (main effect). From [17]
+# ST = total share, including interactions with the other parameters
+#
+# N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
+
+run_sensitivity = True                  # BOOLEAN, CHANGE WHEN NEEDED
+N_sobol = 1024                          # Saltelli base samples
+
+## Scalar model outputs for one parameter set (same role as funcKs in [17])
+def funcS(params):
+    out = simulate(list(params), T1_regimen)
+    V_s = np.array(out[12]) * 100               # cm/s, cerebral blood velocity
+    MAP_s = np.array(out[10]) / MMHG_TO_PA      # mmHg
+    HR_s = np.array(out[8]) * 60                # bpm
+    return [V_s.max(), MAP_s.min(), HR_s.max(), V_s[-1]]
+
+S_outputs = ["v_cereb peak (cm/s)", "MAP min (mmHg)", "HR max (bpm)", f"v_cereb day {T_days} (cm/s)"]
+
+if run_sensitivity:
+
+    ## Problem statement: number of parameters, names and bounds (-20 % to +20 %). From [17]
+    problem = {
+        'num_vars': len(P_names),
+        'names': P_names,
+        'bounds': [[p * 0.8, p * 1.2] for p in params_fit]}
+
+    param_values = saltelli.sample(problem, N_sobol)    # Saltelli sampler. From [17]
+    Y = np.zeros([param_values.shape[0], len(S_outputs)])
+
+    # Runs each sample through the model. From [17]
+    for i, X in enumerate(param_values):
+        Y[i] = funcS(X)
+        if i % (len(param_values) // 10) == 0:
+            print(f"Sobol runs: {i}/{len(param_values)}")
+
+    ## Sobol indices for each output. From [17]
+    Si_all = [sobol.analyze(problem, Y[:, k]) for k in range(len(S_outputs))]
+
+    print("\nSobol Sensitivity Analysis (S1 = parameter alone, ST = including interactions)")
+    for name, Si in zip(S_outputs, Si_all):
+        print(f"\n{name}")
+        print(f"{'Parameter':<13}{'S1':>8}{'S1 conf':>9}{'ST':>8}{'ST conf':>9}")
+        print("-" * 47)
+        for j, p in enumerate(P_names):
+            print(f"{p:<13}{Si['S1'][j]:>8.3f}{Si['S1_conf'][j]:>9.3f}{Si['ST'][j]:>8.3f}{Si['ST_conf'][j]:>9.3f}")
+
+    ## S1 and ST bar chart for each output
+    fig, ax = plt.subplots(2, 2, figsize=(14, 8))
+    x = np.arange(len(P_names))
+    for a, name, Si in zip(ax.flat, S_outputs, Si_all):
+        a.bar(x - 0.2, Si['S1'], 0.4, label="S1 (parameter alone)")
+        a.bar(x + 0.2, Si['ST'], 0.4, label="ST (with interactions)")
+        a.set_xticks(x, P_names, rotation=45, ha="right")
+        a.set_ylabel("Sobol index")
+        a.set_title(name)
+        a.legend()
+    fig.suptitle("Sobol Sensitivity Analysis (Table 1 regimen, parameters -20 % to +20 %)")
+    plt.tight_layout()
     plt.show()
 
 ############################## References #####################################

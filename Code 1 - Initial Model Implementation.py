@@ -120,17 +120,17 @@ kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation as half life(DERIVED)
 # PD is kept in SI for easy conversion
 # Patient baselines are defined at top
 
+# Shared Hill EC50: one free Ce for half-maximal effect on SV, HR, R_sys and R_cereb
+EC50 = 0.5                          # ng/mL, shared EC50 (Fitted)
+
 # Hill Kinetics: drug effect on stroke volume
 dSVmax = 0.28                       # %, maximum SV increase from Levosimendan. From [14]
-EC50_SV = 0.497                     # ng/mL (Fitted)
 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                      # %, maximum HR increase from Levosimendan. From [2][3]
-EC50_HR = 0.57                      # ng/mL, Free Ce hill kinetic term. Derived from [2]
 
 # Hill Kinetics: drug dilation of the systemic (body) vasculature
 Emax_R = 0.4                        # fractional max R_sys drop. (Fitted)
-EC50_sys = 0.498                    # ng/mL (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -151,33 +151,40 @@ R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DE
 
 # Hill kinetics for drug binding to cerebral vasculature resistance
 Emax_cereb = 0.405                  # fractional max R_cereb drop (Fitted)
-EC50_cereb = 0.5                    # ng/mL (Fitted)
 
-# Delay between plasma Ce and drug effect at tissue
+# Delay between plasma Ce and drug effect at tissue (stroke volume)
 keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
 k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 
+# Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
+# both respond faster and mostly to the parent drug. Only SV uses the slow Ce_eff
+# TO DO: find clinical research for p_HR and keo_HR_thalf (currently set from the
+#        Code 2 PD fit experiments, not from literature)
+p_HR = 6                            # parent potency on HR and vessels, relative to its free fraction f0
+keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels
+k_HR = (np.log(2) / keo_HR_thalf) * dt # 1/hrs, pre-multiplied by dt
+
 ### Heart (Mass Transfer System) ###
 #
-# Takes effect-site drug Ce_eff and runs three Hill Kinetic responses:
-# Systemic resistance, stroke volume and heart rate.
+# Takes effect-site drugs and runs three Hill Kinetic responses:
+# Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff).
 # Outputs MAP --> Brain
 #
-def heart_block(Ce_eff_v):
-    R_sys_v = R_sys0 * (1 - Emax_R * Ce_eff_v / (EC50_sys + Ce_eff_v))
-    SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50_SV + Ce_eff_v))
-    HR_v = HR0 * (1 + Emax_HR * Ce_eff_v / (EC50_HR + Ce_eff_v))
+def heart_block(Ce_eff_v, Ce_HR_v):
+    R_sys_v = R_sys0 * (1 - Emax_R * Ce_HR_v / (EC50 + Ce_HR_v))
+    SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50 + Ce_eff_v))
+    HR_v = HR0 * (1 + Emax_HR * Ce_HR_v / (EC50 + Ce_HR_v))
     CO_v = SV_v * HR_v
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
 ### Cerebral Vasculature (Mass Transfer System) ###
 #
-# Takes lagged effective drug and MAP (both from the heart block)
+# Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
 # Equations from [5].
 def cerebral_block(Ce_val, MAP_v):
-    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50_cereb + Ce_val))
+    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50 + Ce_val))
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
@@ -189,6 +196,7 @@ C1855      = [None] * int(T // dt)      # ng/mL, OR-1855
 C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
 Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
 Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
+Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc. for HR and vessels (parent weighted by p_HR)
 
 R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
 SV         = [None] * int(T // dt)      # m^3, stroke volume
@@ -205,10 +213,11 @@ C1855[0] = 0                            # ng/mL
 C1896[0] = 0                            # ng/mL
 Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, quick implementation of effective drug
 Ce_eff[0] = 0                           # ng/mL
+Ce_HR[0] = 0                            # ng/mL
 
 # Implementing baseline patient parameters as initial conditions
-R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0])
-R_cereb[0], V_cereb[0] = cerebral_block(Ce_eff[0], MAP[0])
+R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0])
+R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0])
 
 ############################# Main Loop #######################################
 
@@ -262,12 +271,13 @@ for t in range(0, int(T // dt - 1)):
 
     ### Effect Compartment (delay between plasma and tissue) ###
     Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
+    Ce_HR[t + 1] = Ce_HR[t] + k_HR * (p_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
     ### Heart PD (Mass Transfer System) ###
-    R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1])
+    R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1])
 
     ### Cerebral Vasculature PD (Mass Transfer System) ###
-    R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
+    R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1])
 
 ############################## Plot Figure ####################################
 
