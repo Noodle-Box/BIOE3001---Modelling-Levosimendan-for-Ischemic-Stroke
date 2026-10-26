@@ -232,14 +232,14 @@ def simulate(params, regimen):
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
     ### Rate constants (pre-multiplied by dt) ###
-    kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
-    kac = (np.log(2) / ac_rate) * dt    # 1/Hrs, acetylation as half life (DERIVED)
-    k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, OR-1896 half-life decay (DERIVED)
-    k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, effect-compartment delay (DERIVED)
+    kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life
+    kac = (np.log(2) / ac_rate) * dt    # 1/Hrs, acetylation as half life 
+    k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, OR-1896 half-life decay 
+    k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, effect-compartment delay 
 
     ### Dose conversions for main loop ###
     R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
-    C0_inf = C0_per_dose * dose_sup     # ng/mL, initial jump for this dose (DERIVED)
+    C0_inf = C0_per_dose * dose_sup     # ng/mL, initial jump for this dose 
     L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
     C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
