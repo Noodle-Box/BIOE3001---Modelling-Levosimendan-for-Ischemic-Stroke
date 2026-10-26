@@ -16,6 +16,7 @@
 ############################# Import Libraries ################################
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import least_squares
 
 ############################# Table 1 Input Data ##############################
 # [1] {Puttonen, 2008}. IV infusion, levosimendan and metabolite plasma
@@ -365,83 +366,170 @@ def fit_metrics(y_data, y_model):
     NRMSE = RMSE / (y_data.max() - y_data.min())
     return R2, RMSE, NRMSE
 
-# Initial model, fitted model and data on one figure. From [17]
-def plot_fit(y_init, y_fit, t_data, y_data, ylabel, title):
-    plt.figure()
-    plt.plot(time_hrs, y_init, "r", label="Initial model")
-    if y_fit is not None:
-        plt.plot(time_hrs, y_fit, "b--", label="Fitted model")
-    plt.plot(t_data, y_data, "ko", label="Data")
-    plt.ylabel(ylabel)
-    plt.xlabel("Time (hrs)")
-    plt.title(title)
-    plt.legend()
-    plt.show()
+# Initial model, fitted model and data on one subplot. From [17]
+def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
+    ax.plot(time_hrs, y_init, "r", label="Initial model")
+    ax.plot(time_hrs, y_fit, "b--", label="Fitted model")
+    ax.plot(t_data, y_data, "ko", label="Data")
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Time (hrs)")
+    ax.set_title(title)
+    ax.legend()
+
+########################## Model Parameterisation #############################
+# One parameter set fits both studies. Each part of the model is fitted to its
+# own dataset, then the fitted parts are combined into one model. From [17]
+#
+# 1. PK parameters fitted to Table 1 (Table 1 regimen). The PD parameters do
+#    not affect Table 1, so they stay at their initial values here
+# 2. PD parameters fitted to Table 3 (Table 3 regimen), with the fitted PK fixed
+# 3. Fitted PK + PD combined into one parameter set, params_fit
+#
+# least_squares with bounds keeps fractions within 0-1 and rates positive. From [17]
+
+N_PK = 4                                # first 4 entries of P_names are PK (Table 1)
+
+## Bounds, same order as P_names (physical limits only)
+P_lower = [0.5, 0.01, 0.5, 0.5,         # hrs, -, hrs, hrs
+           0.001, 0.1,                  # -, hrs
+           0, 0.001, 0, 0.001, 0, 0.001]
+P_upper = [200, 10, 200, 200,
+           1, 72,
+           1, 10, 1, 10, 1, 10]
+
+## Table 1: each curve divided by its own data range, so all three carry equal weight
+T1_range = [np.ptp(T1_Levo), np.ptp(T1_m1), np.ptp(T1_m2)]  # ng/mL, max - min
+
+## Table 3: % change from baseline. t = 0 left out (0 % by construction)
+T3_t = T3_time[1:]
+T3_HR_pct = pct(T3_HR, T3_HR0)[1:]
+T3_MAP_pct = pct(T3_MAP, T3_MAP0)[1:]
+T3_CI_pct = pct(T3_CI, T3_CI0)[1:]      # CI = CO / BSA, so % CI = % CO (BSA cancels)
+
+## Residual functions: data - model at the data times. From [17]
+def funcPK(params_PK, params_PD):
+    CLevo_m, CGut_m, C1855_m, C1896_m = simulate(list(params_PK) + list(params_PD), T1_regimen)[0:4]
+    res_Levo = (np.array(T1_Levo) - sample(CLevo_m, T1_time)) / T1_range[0]
+    res_1855 = (np.array(T1_m1) - sample(C1855_m, T1_time)) / T1_range[1]
+    res_1896 = (np.array(T1_m2) - sample(C1896_m, T1_time)) / T1_range[2]
+    return np.concatenate([res_Levo, res_1855, res_1896])
+
+def funcPD(params_PD, params_PK):
+    HR_m, CO_m, MAP_m = simulate(list(params_PK) + list(params_PD), T3_regimen)[8:11]
+    res_HR = T3_HR_pct - sample(pct_curve(HR_m), T3_t)
+    res_MAP = T3_MAP_pct - sample(pct_curve(MAP_m), T3_t)
+    res_CI = T3_CI_pct - sample(pct_curve(CO_m), T3_t)
+    return np.concatenate([res_HR, res_MAP, res_CI])
+
+## 1. PK fitted to Table 1
+fit_PK = least_squares(funcPK, params0[:N_PK], args=(params0[N_PK:],),
+                       bounds=(P_lower[:N_PK], P_upper[:N_PK]))
+
+## 2. PD fitted to Table 3, fitted PK held fixed
+fit_PD = least_squares(funcPD, params0[N_PK:], args=(fit_PK.x,),
+                       bounds=(P_lower[N_PK:], P_upper[N_PK:]))
+
+## 3. One parameter set
+params_fit = list(fit_PK.x) + list(fit_PD.x)
+
+## Standard errors: covariance = (J^T J)^-1 x residual variance SSR / (N - p)
+def std_err(fit):
+    J = fit.jac
+    cov = np.linalg.pinv(J.T @ J) * np.sum(fit.fun ** 2) / (len(fit.fun) - len(fit.x))
+    return np.sqrt(np.diag(cov))
+
+P_SE = list(std_err(fit_PK)) + list(std_err(fit_PD))
+
+############################# Fitted Model Runs ###############################
+# One fitted parameter set, run with each table's dosing regimen
+
+## Table 1 regimen [1]
+(CLevo_fit, CGut_fit, C1855_fit, C1896_fit, Ce_fit, Ce_eff_fit,
+ R_sys_fit, SV_fit, HR_fit, CO_fit, MAP_fit, R_cereb_fit, V_cereb_fit) = simulate(params_fit, T1_regimen)
+
+## Table 3 regimen [3]
+(CLevo_T3_fit, CGut_T3_fit, C1855_T3_fit, C1896_T3_fit, Ce_T3_fit, Ce_eff_T3_fit,
+ R_sys_T3_fit, SV_T3_fit, HR_T3_fit, CO_T3_fit, MAP_T3_fit, R_cereb_T3_fit, V_cereb_T3_fit) = simulate(params_fit, T3_regimen)
+
+######################## Results of Fitted Parameters #########################
+
+## Parameter table: initial vs fitted, standard error, and bound check
+P_units = ["hrs", "-", "hrs", "hrs", "-", "hrs", "-", "ng/mL", "-", "ng/mL", "-", "ng/mL"]
+
+print("\nFitted Model Parameters")
+print(f"{'Parameter':<11}{'Initial':>9}{'Fitted':>10}{'SE':>10}{'Change':>9}  {'Units':<7}Set by")
+print("-" * 70)
+for i, name in enumerate(P_names):
+    change = (params_fit[i] - params0[i]) / params0[i] * 100
+    set_by = "Table 1" if i < N_PK else "Table 3"
+    on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
+    print(f"{name:<11}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{P_SE[i]:>10.3g}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
+
+## Fit quality: R^2, RMSE and NRMSE before and after parameterisation. From [17]
+comparisons = [
+    ("T1 Levosimendan", T1_time, T1_Levo,    CLevo,             CLevo_fit,             "ng/mL"),
+    ("T1 OR-1855",      T1_time, T1_m1,      C1855,             C1855_fit,             "ng/mL"),
+    ("T1 OR-1896",      T1_time, T1_m2,      C1896,             C1896_fit,             "ng/mL"),
+    ("T3 HR",           T3_t,    T3_HR_pct,  pct_curve(HR_T3),  pct_curve(HR_T3_fit),  "%"),
+    ("T3 MAP",          T3_t,    T3_MAP_pct, pct_curve(MAP_T3), pct_curve(MAP_T3_fit), "%"),
+    ("T3 CI",           T3_t,    T3_CI_pct,  pct_curve(CO_T3),  pct_curve(CO_T3_fit),  "%"),
+]
+
+print("\nFit Quality (initial -> fitted)")
+print(f"{'Output':<17}{'N':>3}{'R2 init':>9}{'R2 fit':>9}{'RMSE init':>11}{'RMSE fit':>10}{'NRMSE fit':>11}  Units")
+print("-" * 78)
+for name, t_d, y_d, y_i, y_f, units in comparisons:
+    R2_i, RMSE_i, _ = fit_metrics(y_d, sample(y_i, t_d))
+    R2_f, RMSE_f, NRMSE_f = fit_metrics(y_d, sample(y_f, t_d))
+    print(f"{name:<17}{len(t_d):>3}{R2_i:>9.3f}{R2_f:>9.3f}{RMSE_i:>11.3f}{RMSE_f:>10.3f}{NRMSE_f:>11.3f}  {units}")
 
 ############################## Plot Figure ####################################
 
+## Figure 1: Table 1 data [1] vs initial and fitted model (Table 1 regimen)
+fig, ax = plt.subplots(1, 3, figsize=(15, 4.5))
+plot_fit(ax[0], CLevo, CLevo_fit, T1_time, T1_Levo,
+         "Levosimendan Concentration (ng/mL)", "Levosimendan (Parent)")
+plot_fit(ax[1], C1855, C1855_fit, T1_time, T1_m1,
+         "OR-1855 Concentration (ng/mL)", "OR-1855 (Inactive Metabolite)")
+plot_fit(ax[2], C1896, C1896_fit, T1_time, T1_m2,
+         "OR-1896 Concentration (ng/mL)", "OR-1896 (Active Metabolite)")
+fig.suptitle("Table 1: Levosimendan and Metabolites")
+plt.tight_layout()
+plt.show()
+
+## Figure 2: Table 3 data [3] vs initial and fitted model (Table 3 regimen)
+fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
+plot_fit(ax[0], pct_curve(HR_T3), pct_curve(HR_T3_fit), T3_t, T3_HR_pct,
+         "HR change from baseline (%)", "Heart Rate")
+plot_fit(ax[1], pct_curve(MAP_T3), pct_curve(MAP_T3_fit), T3_t, T3_MAP_pct,
+         "MAP change from baseline (%)", "Mean Arterial Pressure")
+for a in ax:
+    a.set_xlim(0, 2 * T3_time[-1])          # hrs, data window plus the same again
+fig.suptitle("Table 3: Heart Rate and MAP")
+plt.tight_layout()
+plt.show()
+
+## Code 1 plots: initial and fitted model (Table 1 regimen)
 time = (np.arange(0, int(T // dt)) * dt) / 24 # days, x-axis in real time not step number
 
-## Levosimendan Concentration 
-plt.figure()
-plt.plot(time, CLevo)
-plt.ylabel("Levosimendan Concentration in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("Concentration of Levosimendan (Parent)")
-plt.show()
-
-## Gut Transition of OR1855
-plt.figure()
-plt.plot(time, CGut)
-plt.ylabel("Gut Concentration (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("Gut Transit of OR-1855 metabolite")
-plt.show()
-
-## OR-1855 Concentration 
-plt.figure()
-plt.plot(time, C1855)
-plt.ylabel("OR-1855 Concentration in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("OR-1855 (Inactive Metabolite)")
-plt.show()
-
-## OR-1896 Concentration 
-plt.figure()
-plt.plot(time, C1896)
-plt.ylabel("OR-1896 in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("OR-1896 (Active Metabolite)")
-plt.show()
-
-## Pharmacodynamic outputs with SI conversions
-MAP_mmHg = np.array(MAP) / MMHG_TO_PA
-HR_bpm = np.array(HR) * 60
-V_cereb_cms = np.array(V_cereb) * 100
-
-## MAP 
-plt.figure()
-plt.plot(time, MAP_mmHg)
-plt.ylabel("MAP (mmHg)")
-plt.xlabel("Time (days)")
-plt.title("Mean Arterial Pressure (MAP)")
-plt.show()
-
-## Heart Rate
-plt.figure()
-plt.plot(time, HR_bpm)
-plt.ylabel("HR (bpm)")
-plt.xlabel("Time (days)")
-plt.title("Heart Rate (HR)")
-plt.show()
-
-## Blood Velocity through the Middle Cerebral Artery (MCA M1)
-plt.figure()
-plt.plot(time, V_cereb_cms)
-plt.ylabel("Blood Velocity through MCA (cm/s)")
-plt.xlabel("Time (days)")
-plt.title("Cerebral Blood Flow Velocity")
-plt.show()
+code1_plots = [
+    (CLevo, CLevo_fit, "Levosimendan Concentration in Blood (ng/mL)", "Concentration of Levosimendan (Parent)"),
+    (CGut,  CGut_fit,  "Gut Concentration (ng/mL)",                   "Gut Transit of OR-1855 metabolite"),
+    (C1855, C1855_fit, "OR-1855 Concentration in Blood (ng/mL)",      "OR-1855 (Inactive Metabolite)"),
+    (C1896, C1896_fit, "OR-1896 in Blood (ng/mL)",                    "OR-1896 (Active Metabolite)"),
+    (np.array(MAP) / MMHG_TO_PA, np.array(MAP_fit) / MMHG_TO_PA, "MAP (mmHg)", "Mean Arterial Pressure (MAP)"),
+    (np.array(HR) * 60,          np.array(HR_fit) * 60,          "HR (bpm)",   "Heart Rate (HR)"),
+    (np.array(V_cereb) * 100,    np.array(V_cereb_fit) * 100,    "Blood Velocity through MCA (cm/s)", "Cerebral Blood Flow Velocity"),
+]
+for y_i, y_f, ylabel, title in code1_plots:
+    plt.figure()
+    plt.plot(time, y_i, "r", label="Initial model")
+    plt.plot(time, y_f, "b--", label="Fitted model")
+    plt.ylabel(ylabel)
+    plt.xlabel("Time (days)")
+    plt.title(title)
+    plt.legend()
+    plt.show()
 
 ############################## References #####################################
 # Declaration of AI use
