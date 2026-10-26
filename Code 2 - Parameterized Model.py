@@ -179,7 +179,8 @@ EC50_cereb = 0.5                    # ng/mL (Fitted)
 keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
 
 ############################ Parameters to Fit ################################
-# Initial values are the Code 1 values above. Order is fixed:
+# Initial values (starting guesses for the optimiser) are the Code 1 values above.
+# Passed to the fit as one parameter list. From [17]. Order is fixed:
 # PK set by Table 1 first, then PD set by Table 3
 
 P_names = ["gut_rate", "Vm_ratio", "ac_rate", "m2_half",   # PK, Table 1
@@ -218,8 +219,8 @@ def cerebral_block(Ce_val, MAP_v):
 
 ############################# Model Function ##################################
 # Runs the Code 1 model for one parameter set and one dosing regimen, so the
-# parameterisation can call it many times (Week 10 fentanyl example: model loop
-# inside the fitting function)
+# parameterisation can call it many times. Model loop inside a function of
+# the parameters, from [17]
 #
 # params  = fitted parameters, same order as P_names
 # regimen = [loading dose (ng/kg), infusion rate (ng/kg/min), infusion duration (hrs)]
@@ -339,6 +340,44 @@ def simulate(params, regimen):
 (CLevo_T3, CGut_T3, C1855_T3, C1896_T3, Ce_T3, Ce_eff_T3,
  R_sys_T3, SV_T3, HR_T3, CO_T3, MAP_T3, R_cereb_T3, V_cereb_T3) = simulate(params0, T3_regimen)
 
+############################# Helper Functions ################################
+time_hrs = np.arange(0, int(T // dt)) * dt      # hrs, x-axis for fit plots (data is in hrs)
+
+# % change from baseline (Table 3: each cohort's own baseline drops out)
+def pct(y, y0):
+    return (np.array(y, dtype=float) - y0) / y0 * 100
+
+# % change of a model curve from its drug-naive first value
+def pct_curve(y):
+    return pct(y, y[0])
+
+# Model value at each data time (index = t / dt). From [17]
+def sample(curve, t_data):
+    idx = [int(round(t / dt)) for t in t_data]
+    return np.array(curve, dtype=float)[idx]
+
+# R^2 and RMSE from [17]. NRMSE = RMSE / data range, to compare outputs with different units
+def fit_metrics(y_data, y_model):
+    y_data = np.array(y_data, dtype=float)
+    residual = y_data - y_model
+    R2 = 1 - np.sum(residual ** 2) / np.sum((y_data - y_data.mean()) ** 2)
+    RMSE = np.sqrt(np.mean(residual ** 2))
+    NRMSE = RMSE / (y_data.max() - y_data.min())
+    return R2, RMSE, NRMSE
+
+# Initial model, fitted model and data on one figure. From [17]
+def plot_fit(y_init, y_fit, t_data, y_data, ylabel, title):
+    plt.figure()
+    plt.plot(time_hrs, y_init, "r", label="Initial model")
+    if y_fit is not None:
+        plt.plot(time_hrs, y_fit, "b--", label="Fitted model")
+    plt.plot(t_data, y_data, "ko", label="Data")
+    plt.ylabel(ylabel)
+    plt.xlabel("Time (hrs)")
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
 ############################## Plot Figure ####################################
 
 time = (np.arange(0, int(T // dt)) * dt) / 24 # days, x-axis in real time not step number
@@ -433,3 +472,4 @@ plt.show()
 # [14] {Slawsky, 2000}
 # [15] {Mirza, 2024}
 # [16] {SafeCareVictoria, 2018}
+# [17] {Mann, 2016}
