@@ -20,6 +20,14 @@ from scipy.optimize import least_squares
 from SALib.sample import saltelli
 from SALib.analyze import sobol
 
+############################## RUN MODE #######################################
+# Global toggle for run mode
+# 
+# FALSE: Just parameterisation of Code #1
+# TRUE: Both paramterisation and sensitivity analysis observing Cerebral Blood Flow (V_cereb)
+
+run_sensitivity = False                 # BOOLEAN, CHANGE WHEN NEEDED
+
 ############################# Table 1 Input Data ##############################
 # Levosimendan, OR-1855 and OR-1896
 
@@ -577,7 +585,6 @@ for y_i, y_f, ylabel, title in code1_plots:
 #
 # N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
 
-run_sensitivity = False                 # BOOLEAN, CHANGE WHEN NEEDED
 N_sobol = 1024                          # Saltelli base samples
 t_obs = 7                               # days, observation day for v_cereb (drops below ~50 cm/s)
 
