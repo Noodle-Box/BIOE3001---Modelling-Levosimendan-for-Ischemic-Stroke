@@ -21,8 +21,7 @@ from SALib.sample import saltelli
 from SALib.analyze import sobol
 
 ############################# Table 1 Input Data ##############################
-# [1] {Puttonen, 2008}. IV infusion, levosimendan and metabolite plasma
-# concentrations vs time
+# Levosimendan, OR-1855 and OR-1896
 
 ## Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
 ## hrs, no loading bolus. From [1].
@@ -42,10 +41,9 @@ T1_m1   = [0, 0, 0, 0, 0, 0, 0, 0, 0.05, 0.8, 0.9, 1.05, 1.2, 1.55, 2.1, 1.9, 1.
 T1_m2   = [0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0.6, 0.7, 0.85, 1.1, 1.75, 2.35, 2.4, 2.35, 2.05, 1.2, 0.55, 0.3]
 
 ############################# Table 3 Input Data ##############################
-# [3] {Álvarez, 2006}. IV loading dose + 24 h infusion, HR, CI and MAP vs time
-
-## Dosing regimen: 12 ug/kg loading dose at t = 0, followed by 200 ng/kg/min
-## constant IV infusion for 24 hrs. From [3].
+# HR and MAP
+# Dosing regimen: 12 ug/kg loading dose at t = 0, followed by 200 ng/kg/min
+# constant IV infusion for 24 hrs. From [3].
 
 T3_load  = 12                       # ug/kg, loading dose at t = 0 (instant bolus)
 T3_dose  = 200                      # ng/kg/min, maintenance infusion rate
@@ -54,14 +52,11 @@ T3_T_inf = 24                       # hrs, maintenance infusion duration
 ## Patient specific parameters
 T3_HR0  = 83                        # bpm, baseline HR, t = 0 row of [3]
 T3_MAP0 = 84                        # mmHg, baseline MAP, t = 0 row of [3]
-T3_CI0  = 2.08                      # L/min/m^2, baseline cardiac index, t = 0 row of [3]
 # T3_BW  =                          # kg, cohort body weight (TBA from [3] demographics)
-# T3_BSA =                          # m^2, body surface area, for CI -> CO (TBA)
 
 ## Clinical data
-## TABLE 3 Heart Rate, Cardiac Output (Derived) and MAP 
+## TABLE 3 Heart Rate and MAP
 T3_time = [0, 6, 12, 18, 24, 36, 48]              # hrs, time column
-T3_CI   = [2.08, 2.25, 2.83, 2.86, 2.9, 2.87, 2.84]   # L/min/m^2, cardiac index column
 T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
 T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
 
@@ -162,8 +157,8 @@ Emax_HR = 0.11                           # %, maximum HR increase from Levosimen
 p_HR = 6                                 # parent potency on HR and vessels, relative to its free fraction f0
 keo_HR_thalf = 6                         # hrs, HR effect-site delay
 
-# Hill Kinetics: drug dilation of the systemic (body) vasculature
-Emax_R = 0.4                             # fractional max R_sys drop. (Fitted)
+# Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
+Emax_R = 0.4                             # fractional max R_sys and R_cereb drop. (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -181,9 +176,6 @@ A_cereb = np.pi * (r_cereb) ** 2         # m^2, MCA cross-section
 CPP0 = MAP0 - P_brain                    # Pa, baseline cerebral perfusion pressure (DERIVED)
 Q_cereb0 = v_cereb0 * A_cereb            # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0               # Pa.s/m^3, baseline cerebral resistance (DERIVED)
-
-# Hill kinetics for drug binding to cerebral vasculature resistance
-Emax_cereb = 0.405                       # fractional max R_cereb drop (Fitted)
 
 # Delay between plasma Ce and drug effect at tissue (stroke volume)
 keo_thalf = 10                           # hrs, compartment-effect time delay (Fitted)
@@ -223,10 +215,11 @@ def heart_block(Ce_eff_v, Ce_HR_v, P_HB):
 #
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
-# EC50_v = shared EC50 (same as the heart block, so v_cereb does not dip below baseline)
+# Emax_v, EC50_v = shared Emax_R and EC50 (same as the heart block, so v_cereb
+# does not dip below baseline)
 # Equations from [5].
-def cerebral_block(Ce_val, MAP_v, EC50_v):
-    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50_v + Ce_val))
+def cerebral_block(Ce_val, MAP_v, Emax_v, EC50_v):
+    Cerebral_R = R_cereb0 * (1 - Emax_v * Ce_val / (EC50_v + Ce_val))
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
@@ -288,7 +281,7 @@ def simulate(params, regimen):
 
     # Implementing baseline patient parameters as initial conditions
     R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0], P_HB)
-    R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0], P_HB[1])
+    R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0], P_HB[0], P_HB[1])
 
     ### Main Loop ###
 
@@ -342,7 +335,7 @@ def simulate(params, regimen):
         R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], P_HB)
 
         ### Cerebral Vasculature PD (Mass Transfer System) ###
-        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], P_HB[1])
+        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], P_HB[0], P_HB[1])
 
     return (CLevo, CGut, C1855, C1896, Ce, Ce_eff,
             R_sys, SV, HR, CO, MAP, R_cereb, V_cereb)
@@ -435,12 +428,11 @@ def build_PD(x):
 T3_t = T3_time[1:]
 T3_HR_pct = pct(T3_HR, T3_HR0)[1:]
 T3_MAP_pct = pct(T3_MAP, T3_MAP0)[1:]
-T3_CI_pct = pct(T3_CI, T3_CI0)[1:]      # CI = CO / BSA, so % CI = % CO (BSA cancels)
 
-## Table 3 weights: each output divided by its largest % change so they count
-## equally, then multiplied by W_. HR and MAP emphasised, CI low weight to anchor SV
-W_HR, W_MAP, W_CI = 0.4, 0.4, 0.2
-T3_scale = [np.max(np.abs(T3_HR_pct)), np.max(np.abs(T3_MAP_pct)), np.max(np.abs(T3_CI_pct))]
+## Table 3 weights: each output divided by its largest % change so HR and MAP
+## count equally, then multiplied by W_ (50/50)
+W_HR, W_MAP = 0.5, 0.5
+T3_scale = [np.max(np.abs(T3_HR_pct)), np.max(np.abs(T3_MAP_pct))]
 
 ## Residual functions: data - model at the data times. From [17]
 def funcPK(params_PK, params_PD):
@@ -454,8 +446,7 @@ def funcPD(params_PD_free, params_PK):
     HR_m, CO_m, MAP_m = simulate(list(params_PK) + build_PD(params_PD_free), T3_regimen)[8:11]
     res_HR = W_HR * (T3_HR_pct - sample(pct_curve(HR_m), T3_t)) / T3_scale[0]
     res_MAP = W_MAP * (T3_MAP_pct - sample(pct_curve(MAP_m), T3_t)) / T3_scale[1]
-    res_CI = W_CI * (T3_CI_pct - sample(pct_curve(CO_m), T3_t)) / T3_scale[2]
-    return np.concatenate([res_HR, res_MAP, res_CI])
+    return np.concatenate([res_HR, res_MAP])
 
 ## 1. PK fitted to Table 1
 fit_PK = least_squares(funcPK, params0[:N_PK], args=(params0[N_PK:],),
@@ -514,7 +505,6 @@ comparisons = [
     ("T1 OR-1896",      T1_time, T1_m2,      C1896,             C1896_fit,             "ng/mL"),
     ("T3 HR",  T3_t, T3_HR[1:],  to_T3_units(HR_T3, T3_HR0),   to_T3_units(HR_T3_fit, T3_HR0),   "bpm"),
     ("T3 MAP", T3_t, T3_MAP[1:], to_T3_units(MAP_T3, T3_MAP0), to_T3_units(MAP_T3_fit, T3_MAP0), "mmHg"),
-    ("T3 CI",  T3_t, T3_CI[1:],  to_T3_units(CO_T3, T3_CI0),   to_T3_units(CO_T3_fit, T3_CI0),   "L/min/m^2"),
 ]
 
 print("\nFit Quality (initial -> fitted)")
@@ -585,8 +575,8 @@ for y_i, y_f, ylabel, title in code1_plots:
 #
 # N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
 
-run_sensitivity = True                  # BOOLEAN, CHANGE WHEN NEEDED
-N_sobol = 1024                          # Saltelli base samples
+run_sensitivity = False                  # BOOLEAN, CHANGE WHEN NEEDED
+N_sobol = 1024                            # Saltelli base samples
 
 ## Scalar model outputs for one parameter set (same role as funcKs in [17])
 def funcS(params):

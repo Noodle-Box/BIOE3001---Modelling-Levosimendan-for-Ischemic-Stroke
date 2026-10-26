@@ -129,8 +129,8 @@ dSVmax = 0.28                       # %, maximum SV increase from Levosimendan. 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                      # %, maximum HR increase from Levosimendan. From [2][3]
 
-# Hill Kinetics: drug dilation of the systemic (body) vasculature
-Emax_R = 0.4                        # fractional max R_sys drop. (Fitted)
+# Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
+Emax_R = 0.4                        # fractional max R_sys and R_cereb drop. (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
@@ -148,9 +148,6 @@ A_cereb = np.pi * (r_cereb) ** 2    # m^2, MCA cross-section
 CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure (DERIVED)
 Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
-
-# Hill kinetics for drug binding to cerebral vasculature resistance
-Emax_cereb = 0.405                  # fractional max R_cereb drop (Fitted)
 
 # Delay between plasma Ce and drug effect at tissue (stroke volume)
 keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
@@ -184,7 +181,7 @@ def heart_block(Ce_eff_v, Ce_HR_v):
 # Combined lumped resistance and MAP to solve for blood velocity
 # Equations from [5].
 def cerebral_block(Ce_val, MAP_v):
-    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50 + Ce_val))
+    Cerebral_R = R_cereb0 * (1 - Emax_R * Ce_val / (EC50 + Ce_val))
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
