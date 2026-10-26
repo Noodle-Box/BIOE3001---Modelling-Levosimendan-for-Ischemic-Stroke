@@ -110,74 +110,74 @@ T3_regimen = [T3_load * 1000, T3_dose, T3_T_inf]  # Table 3 [3], ug/kg x 1000 ->
 # of it on arrival. C_int is the t = 0 intercept of the line fitted to the 
 # 2–24 hr data (no sample was taken at t = 0)
 
-levo_half = 0.9                     # hrs, Levosimendan half-life. From [1]
-k0 = (np.log(2) / levo_half) * dt   # 1/Hrs, parent half-life decay (DERIVED)
-f0 = 0.03                           # Free Fraction Levosimendan. From [4]
+levo_half = 0.9                          # hrs, Levosimendan half-life. From [1]
+k0 = (np.log(2) / levo_half) * dt        # 1/Hrs, parent half-life decay (DERIVED)
+f0 = 0.03                                # Free Fraction Levosimendan. From [4]
 
-C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED FROM [1])
-C0_levo = 25.00                     # ng/mL, intercept at t=0 (CALCULATED FROM [1])
-V_kg = 132                          # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
+C_slope = 1.3388                         # ng/mL/hr, net rise during infusion (FITTED FROM [1])
+C0_levo = 25.00                          # ng/mL, intercept at t=0 (CALCULATED FROM [1])
+V_kg = 132                               # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
 
 # Dose conversions (dose-independent). R_inf, L_inf, C0_inf and C_dose_load
 # depend on the regimen, so they are calculated inside simulate()
-dose_ref = T1_dose                  # ng/kg/min, Table 1 dose that C_slope and C0_levo were measured at
-phi = C_slope / (dose_ref * 60 / V_kg) # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
-C0_per_dose = C0_levo / dose_ref    # ng/mL per (ng/kg/min), intercept per unit dose (DERIVED)
+dose_ref = T1_dose                       # ng/kg/min, Table 1 dose that C_slope and C0_levo were measured at
+phi = C_slope / (dose_ref * 60 / V_kg)   # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
+C0_per_dose = C0_levo / dose_ref         # ng/mL per (ng/kg/min), intercept per unit dose (DERIVED)
 
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
-T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
-gut_rate = 53                       # hrs, gut release rate From [13]
+T_gut = 30                               # hrs, time when gut starts to release (FITTED FROM [1])
+gut_rate = 53                            # hrs, gut release rate From [13]
 
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
-Vm_ratio = 0.5                      # parent-to-metabolite volume ratio (FITTED FROM [1])
+m1 = 0.05                                # Formation Fraction into OR-1855 metabolite. From [13]
+Vm_ratio = 0.5                           # parent-to-metabolite volume ratio (FITTED FROM [1])
 
 # Parameters: OR-1896 Metabolite (Active)
-m2_half = 7.7                       # Hrs, OR-1896 half-life (FITTED)
-f2 = 0.61                           # Free Fraction OR-1896. From [1], [4]
+m2_half = 7.7                            # Hrs, OR-1896 half-life (FITTED)
+f2 = 0.61                                # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 9.6                       # Hrs, acetylation rate. From [13]
+ac_rate = 9.6                            # Hrs, acetylation rate. From [13]
 
 ################### Parameters: Body (Pharmacodynamics) #######################
 # PD is kept in SI for easy conversion
 # Patient baselines are defined at top
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.28                       # %, maximum SV increase from Levosimendan. From [14]
-EC50_SV = 0.497                     # ng/mL (Fitted)
+dSVmax = 0.28                            # %, maximum SV increase from Levosimendan. From [14]
+EC50_SV = 0.497                          # ng/mL (Fitted)
 
 # Hill Kinetics: drug effect on heart rate
-Emax_HR = 0.11                      # %, maximum HR increase from Levosimendan. From [2][3]
-EC50_HR = 0.57                      # ng/mL, Free Ce hill kinetic term. Derived from [2]
+Emax_HR = 0.11                           # %, maximum HR increase from Levosimendan. From [2][3]
+EC50_HR = 0.57                           # ng/mL, Free Ce hill kinetic term. Derived from [2]
 
 # Hill Kinetics: drug dilation of the systemic (body) vasculature
-Emax_R = 0.4                        # fractional max R_sys drop. (Fitted)
-EC50_sys = 0.498                    # ng/mL (Fitted)
+Emax_R = 0.4                             # fractional max R_sys drop. (Fitted)
+EC50_sys = 0.498                         # ng/mL (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
 # Resistance = (pressure / flow), both baseline
-CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output (DERIVED)
-R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance (DERIVED)
+CO0 = SV0 * HR0                          # m^3/s, baseline cardiac output (DERIVED)
+R_sys0 = MAP0 / CO0                      # Pa.s/m^3, baseline systemic resistance (DERIVED)
 
 ### Parameters: Brain Block (MAP, Ce_eff --> V_cereb)
 
-A_cereb = np.pi * (r_cereb) ** 2    # m^2, MCA cross-section
+A_cereb = np.pi * (r_cereb) ** 2         # m^2, MCA cross-section
 
 # Derivation for baseline cerebral resistance, similar to R_sys
 # Resistance = pressure / flow, both baseline
 
-CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure (DERIVED)
-Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
-R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
+CPP0 = MAP0 - P_brain                    # Pa, baseline cerebral perfusion pressure (DERIVED)
+Q_cereb0 = v_cereb0 * A_cereb            # m^3/s, baseline cerebral flow (DERIVED)
+R_cereb0 = CPP0 / Q_cereb0               # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
 # Hill kinetics for drug binding to cerebral vasculature resistance
-Emax_cereb = 0.405                  # fractional max R_cereb drop (Fitted)
-EC50_cereb = 0.5                    # ng/mL (Fitted)
+Emax_cereb = 0.405                       # fractional max R_cereb drop (Fitted)
+EC50_cereb = 0.5                         # ng/mL (Fitted)
 
 # Delay between plasma Ce and drug effect at tissue
-keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
+keo_thalf = 10                           # hrs, compartment-effect time delay (Fitted)
 
 ############################ Parameters to Fit ################################
 # Initial values (starting guesses for the optimiser) are the Code 1 values above.
@@ -234,16 +234,16 @@ def simulate(params, regimen):
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
     ### Rate constants (pre-multiplied by dt) ###
-    kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life
-    kac = (np.log(2) / ac_rate) * dt    # 1/Hrs, acetylation as half life 
-    k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, OR-1896 half-life decay 
-    k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, effect-compartment delay 
+    kg = (np.log(2) / gut_rate) * dt        # 1/hrs, gut release rate as half life
+    kac = (np.log(2) / ac_rate) * dt        # 1/Hrs, acetylation as half life 
+    k2 = (np.log(2) / m2_half) * dt         # 1/Hrs, OR-1896 half-life decay 
+    k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, effect-compartment delay 
 
     ### Dose conversions for main loop ###
-    R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
-    C0_inf = C0_per_dose * dose_sup     # ng/mL, initial jump for this dose 
-    L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
-    C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
+    R_inf = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
+    C0_inf = C0_per_dose * dose_sup         # ng/mL, initial jump for this dose 
+    L_inf = (1 - phi) * R_inf               # ng/mL per step, loss during infusion
+    C_dose_load = dose_load / V_kg          # ng/mL, loading dose jump at t = 0
 
     ### Initial Conditions ###
     CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
@@ -262,7 +262,7 @@ def simulate(params, regimen):
     R_cereb    = [None] * int(T // dt)      # Pa.s/m^3, cerebral resistance
     V_cereb    = [None] * int(T // dt)      # m/s, cerebral blood velocity
 
-    CLevo[0] = C0_inf + C_dose_load        # ng/mL, initial + loading dose
+    CLevo[0] = C0_inf + C_dose_load         # ng/mL, initial + loading dose
     Cdose_load[0] = C_dose_load             # ng/mL, just loading dose
     CGut[0]  = 0                            # ng/mL
     C1855[0] = 0                            # ng/mL
@@ -521,9 +521,9 @@ code1_plots = [
     (CGut,  CGut_fit,  "Gut Concentration (ng/mL)",                   "Gut Transit of OR-1855 metabolite"),
     (C1855, C1855_fit, "OR-1855 Concentration in Blood (ng/mL)",      "OR-1855 (Inactive Metabolite)"),
     (C1896, C1896_fit, "OR-1896 in Blood (ng/mL)",                    "OR-1896 (Active Metabolite)"),
-    (np.array(MAP) / MMHG_TO_PA, np.array(MAP_fit) / MMHG_TO_PA, "MAP (mmHg)", "Mean Arterial Pressure (MAP)"),
-    (np.array(HR) * 60,          np.array(HR_fit) * 60,          "HR (bpm)",   "Heart Rate (HR)"),
-    (np.array(V_cereb) * 100,    np.array(V_cereb_fit) * 100,    "Blood Velocity through MCA (cm/s)", "Cerebral Blood Flow Velocity"),
+    (np.array(MAP) / MMHG_TO_PA, np.array(MAP_fit) / MMHG_TO_PA,      "MAP (mmHg)", "Mean Arterial Pressure (MAP)"),
+    (np.array(HR) * 60,          np.array(HR_fit) * 60,               "HR (bpm)",   "Heart Rate (HR)"),
+    (np.array(V_cereb) * 100,    np.array(V_cereb_fit) * 100,         "Blood Velocity through MCA (cm/s)", "Cerebral Blood Flow Velocity"),
 ]
 for y_i, y_f, ylabel, title in code1_plots:
     plt.figure()
