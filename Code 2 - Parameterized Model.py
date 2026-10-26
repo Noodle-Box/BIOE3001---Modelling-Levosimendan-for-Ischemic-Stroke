@@ -28,9 +28,8 @@ from SALib.analyze import sobol
 
 run_sensitivity = False             # BOOLEAN, CHANGE WHEN NEEDED
 
-
 ###############################################################################
-###################### Section 1: Model Implemetation #########################
+###################### Section 1: Model Implementation #########################
 ###############################################################################
 
 ############################# Table 1 Input Data ##############################
@@ -75,7 +74,7 @@ T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
 
 
 ############################### Time Course ###################################
-## Time course: set in days (runs in hrs for better computation accuracy)
+## Time course: set in days, runs in hrs
 ## Single dose only: Tables 1 and 3 each report one dosing course
 
 T_days = 12                         # days, time course (covers the 240 hr Table 1 data)
@@ -84,19 +83,19 @@ dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
-# Patient-Specific Body parameters (Reference for dose, used for later Code 2 and 3)
-BW = 80                             # kg, sample body weight from [1],[10]
+# Patient-Specific Body parameters
+BW = 80                             # kg, sample body weight from [1], [10]
 
-# Conversion macros for patient PD
+# Unit conversion macros
 MMHG_TO_PA = 133.322                # Pa per mmHg
 ML_TO_M3 = 1e-6                     # m^3 per mL
 
-# Patient-specific PD Heart Parameters (for curing)
+# Patient-specific heart baselines
 HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [10]
 SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11]
-MAP0 = 105.0 * MMHG_TO_PA           # Pa, Baseline MAP. From [11]
+MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [11]
 
-# Patient-specific PD Brain Parameters (for curing)
+# Patient-specific brain baselines
 v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
 P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
 r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
@@ -117,11 +116,11 @@ T3_regimen = [T3_load * 1000, T3_dose, T3_T_inf]  # Table 3 [3], ug/kg x 1000 ->
 # has similar dosing regimen to source
 #
 # Levosimendan enters at constant infusion rate but constant loss clears most
-# of it on arrival. C_int is the t = 0 intercept of the line fitted to the 
+# of it on arrival. C0_levo is the t = 0 intercept of the line fitted to the 
 # 2–24 hr data (no sample was taken at t = 0)
 
 levo_half = 0.9                          # hrs, Levosimendan half-life. From [1]
-k0 = (np.log(2) / levo_half) * dt        # 1/Hrs, parent half-life decay (DERIVED)
+k0 = (np.log(2) / levo_half) * dt        # 1/hrs, parent half-life decay (DERIVED)
 f0 = 0.03                                # Free Fraction Levosimendan. From [4]
 
 C_slope = 1.3388                         # ng/mL/hr, net rise during infusion (FITTED FROM [1])
@@ -134,7 +133,7 @@ dose_ref = T1_dose                       # ng/kg/min, Table 1 dose that C_slope 
 phi = C_slope / (dose_ref * 60 / V_kg)   # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
 C0_per_dose = C0_levo / dose_ref         # ng/mL per (ng/kg/min), intercept per unit dose (DERIVED)
 
-# Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
+# Parameters: Gut Transit (delay before metabolites)
 T_gut = 30                               # hrs, time when gut starts to release (FITTED FROM [1])
 gut_rate = 53                            # hrs, gut release rate From [13]
 
@@ -143,53 +142,51 @@ m1 = 0.05                                # Formation Fraction into OR-1855 metab
 Vm_ratio = 0.5                           # parent-to-metabolite volume ratio (FITTED FROM [1])
 
 # Parameters: OR-1896 Metabolite (Active)
-m2_half = 7.7                            # Hrs, OR-1896 half-life (FITTED)
+m2_half = 7.7                            # hrs, OR-1896 half-life (FITTED)
 f2 = 0.61                                # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 9.6                            # Hrs, acetylation rate. From [13]
+ac_rate = 9.6                            # hrs, acetylation rate. From [13]
 
 ################### Parameters: Body (Pharmacodynamics) #######################
-# PD is kept in SI for easy conversion
-# Patient baselines are defined at top
+# PD is kept in SI, patient baselines are defined at top
 
-# Shared Hill EC50: one free Ce for half-maximal effect on SV, HR, R_sys and R_cereb
+# Shared EC50 for SV, HR, R_sys and R_cereb
 EC50 = 0.5                               # ng/mL, shared EC50 (Fitted)
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.28                            # %, maximum SV increase from Levosimendan. From [14]
+dSVmax = 0.28                            # fraction, maximum SV increase from Levosimendan. From [14]
 
 # Hill Kinetics: drug effect on heart rate
-Emax_HR = 0.11                           # %, maximum HR increase from Levosimendan. From [2][3]
+Emax_HR = 0.11                           # fraction, maximum HR increase from Levosimendan. From [2],[3]
 
-# Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
+# Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
 # Values fitted but parameters supported by [3] and [18]
 p_HR = 6                                 # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                         # hrs, fast effect delay for HR and vessels (Fitted)
 k_HR = (np.log(2)/keo_HR_thalf)*dt       # 1/hrs, pre-multiplied by dt
 
-# Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
+# Hill Kinetics: dilation of systemic and cerebral vessels
 Emax_R = 0.4                             # fractional max R_sys and R_cereb drop. (Fitted)
 
 # Derivation for baseline systemic resistance
 # (how strong vessels oppose blood flow)
-# Resistance = (pressure / flow), both baseline
+# Baseline systemic resistance = pressure / flow
 CO0 = SV0 * HR0                          # m^3/s, baseline cardiac output (DERIVED)
 R_sys0 = MAP0 / CO0                      # Pa.s/m^3, baseline systemic resistance (DERIVED)
 
-### Parameters: Brain Block (MAP, Ce_eff --> V_cereb)
-
+### Parameters: Brain Block (MAP, Ce_HR --> V_cereb)
 A_cereb = np.pi * (r_cereb) ** 2         # m^2, MCA cross-section
 
-# Derivation for baseline cerebral resistance, similar to R_sys
-# Resistance = pressure / flow, both baseline
+# Derivation for baseline cerebral resistance
+# Baseline cerebral resistance = pressure / flow
 
 CPP0 = MAP0 - P_brain                    # Pa, baseline cerebral perfusion pressure (DERIVED)
 Q_cereb0 = v_cereb0 * A_cereb            # m^3/s, baseline cerebral flow (DERIVED)
 R_cereb0 = CPP0 / Q_cereb0               # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
-# Delay between plasma Ce and drug effect at tissue (stroke volume)
+# Effect delay for SV
 keo_thalf = 10                           # hrs, compartment-effect time delay (Fitted)
 
 ############################ Parameters to Fit ################################
@@ -209,8 +206,8 @@ params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
 
 ### Heart (Mass Transfer System) ###
 #
-# Takes effect-site drug Ce_eff and runs three Hill Kinetic responses:
-# Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff).
+# Takes effect-site drugs and runs three Hill Kinetic responses:
+# Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff)
 # P_HB = [Emax_R, EC50, dSVmax, Emax_HR] (fitted values, EC50 shared by every effect)
 # Outputs MAP --> Brain
 #
@@ -252,15 +249,15 @@ def simulate(params, regimen):
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
     ### Rate constants (pre-multiplied by dt) ###
-    kg = (np.log(2) / gut_rate) * dt        # 1/hrs, gut release rate as half life
-    kac = (np.log(2) / ac_rate) * dt        # 1/Hrs, acetylation as half life 
-    k2 = (np.log(2) / m2_half) * dt         # 1/Hrs, OR-1896 half-life decay 
-    k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, effect-compartment delay 
-    k_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, HR effect-site delay
+    kg = (np.log(2) / gut_rate) * dt        # 1/hrs, gut release rate as half life (DERIVED)
+    kac = (np.log(2) / ac_rate) * dt        # 1/hrs, acetylation as half life (DERIVED)
+    k2 = (np.log(2) / m2_half) * dt         # 1/hrs, OR-1896 half-life decay (DERIVED)
+    k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, pre-multiplied by dt
+    k_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, pre-multiplied by dt
 
     ### Dose conversions for main loop ###
     R_inf = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
-    C0_inf = C0_per_dose * dose_sup         # ng/mL, initial jump for this dose 
+    C0_inf = C0_per_dose * dose_sup         # ng/mL, initial jump for this dose
     L_inf = (1 - phi) * R_inf               # ng/mL per step, loss during infusion
     C_dose_load = dose_load / V_kg          # ng/mL, loading dose jump at t = 0
 
@@ -272,7 +269,7 @@ def simulate(params, regimen):
     C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
     Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
     Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
-    Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc. for HR and vessels (parent weighted by p_HR)
+    Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc (HR, vessels)
 
     R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
     SV         = [None] * int(T // dt)      # m^3, stroke volume
@@ -287,11 +284,11 @@ def simulate(params, regimen):
     CGut[0]  = 0                            # ng/mL
     C1855[0] = 0                            # ng/mL
     C1896[0] = 0                            # ng/mL
-    Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, quick implementation of effective drug
+    Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, free active drug
     Ce_eff[0] = 0                           # ng/mL
     Ce_HR[0] = 0                            # ng/mL
 
-    # Implementing baseline patient parameters as initial conditions
+    # Patient baselines as initial conditions
     R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0], P_HB)
     R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0], P_HB[0], P_HB[1])
 
@@ -301,23 +298,22 @@ def simulate(params, regimen):
 
         ### Levosimendan (ACTIVE) ###
 
-        # dose_loading dose part: given at t = 0, cleared by first-order decay from the
-        # start (the infusion loss L_inf only acts on the infused drug)
+        # Loading dose: first-order decay from t = 0
         dCdose_load = -k0 * Cdose_load[t]
         Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
         
-        # If within "dose_inf" hrs, drug is infusing
+        # Infusing if within dose_inf hrs
         if t * dt < dose_inf:
             dCLevo = R_inf - L_inf + dCdose_load
             Form = m1 * Vm_ratio * (L_inf + k0 * Cdose_load[t])
             
-        # Else, drug is naturally expelled with decay
+        # Else, first order decay
         else:
             dCLevo = -k0 * CLevo[t]
             Form = m1 * Vm_ratio * k0 * CLevo[t]
         CLevo[t + 1] = CLevo[t] + dCLevo
 
-        ### Gut Transit Compartment (time capture) ###
+        ### Gut Transit Compartment ###
         if t * dt < T_gut:
             Rel = 0
         else:
@@ -332,7 +328,7 @@ def simulate(params, regimen):
         C1855[t + 1] = C1855[t] + dC1855
 
         ### OR-1896 (ACTIVE Metabolite) ###
-        # Formed by acetylation and self decay
+        # Formed by acetylation, lost to self decay
         dC1896 = kac * C1855[t] - k2 * C1896[t]
         C1896[t + 1] = C1896[t] + dC1896
 
@@ -398,58 +394,50 @@ def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
     ax.legend()
     
     
-    
 ###############################################################################
 ###################### Section 2: Model Parameterisation ######################
 ###############################################################################
 
-# One parameter set fits both studies. Each part of the model is fitted to its
-# own dataset, then the fitted parts are combined into one model. From [17]
+# One parameter set to fit both studies. This will make a robust-general PKPD model
+#   1. PK fitted to Table 1 (PD has no effect on Table 1)
+#   2. PD fitted to Table 3 (fitted PK held fixed)
 #
-# 1. PK parameters fitted to Table 1 (Table 1 regimen). The PD parameters do
-#    not affect Table 1, so they stay at their initial values here
-# 2. PD parameters fitted to Table 3 (Table 3 regimen), with the fitted PK fixed.
-#
-# least_squares with bounds keeps fractions within 0-1 and rates positive. From [17]
+# least_squares with bounds keeps parameters physical
+# 
+# Implementation from [17]
 
-N_PK = 4                                # first 4 entries of P_names are PK (Table 1)
+N_PK = 4                               # first 4 P_names are PK
 
-## Bounds, same order as P_names (physical limits only)
-P_lower = [0.5, 0.01, 0.5, 0.5,         # hrs, -, hrs, hrs
-           0.001, 0.1,                  # -, hrs
-           0, 0.001, 0, 0,
-           1, 0.1]
-P_upper = [200, 10, 200, 200,
-           1, 72,
-           1, 10, 1, 1,
-           50, 72]
+# Bounds (same order as P_names)
+P_lower = [0.5, 0.01, 0.5, 0.5, 0.001, 0.1, 0, 0.001, 0, 0, 1, 0.1]
+P_upper = [200, 10, 200, 200, 1, 72, 1, 10, 1, 1, 50, 72]
 
-## Table 1: each curve divided by its own data range, so all three carry equal weight
+# Table 1: each curve divided by its own range
 T1_range = [np.ptp(T1_Levo), np.ptp(T1_m1), np.ptp(T1_m2)]  # ng/mL, max - min
 
-## PD parameters held fixed (not identifiable from Table 3, see PD Fit Experiments)
+# PD parameters held fixed 
 P_fixed = ["f0", "EC50", "dSVmax", "p_HR", "keo_HR_thalf"]
 PD_names = P_names[N_PK:]
 PD_free = [n for n in PD_names if n not in P_fixed]
 i_free = [P_names.index(n) for n in PD_free]
 
-# Full PD list (P_names order) from the fitted free values + fixed Code 1 values
+# Full PD listL fitted free values + fixed Code #1 values
 def build_PD(x):
     P = dict(zip(P_names, params0))
     P.update(zip(PD_free, x))
     return [P[n] for n in PD_names]
 
-## Table 3: % change from baseline. t = 0 left out (0 % by construction)
+# Table 3: % change from baseline (t=0 left out)
 T3_t = T3_time[1:]
 T3_HR_pct = pct(T3_HR, T3_HR0)[1:]
 T3_MAP_pct = pct(T3_MAP, T3_MAP0)[1:]
 
-## Table 3 weights: each output divided by its largest % change so HR and MAP
-## count equally, then multiplied by W_ (50/50)
+# Table 3 weights: each output divided by its max % change, then split 50/50
+# No Cardiac Index (CI) needed
 W_HR, W_MAP = 0.5, 0.5
 T3_scale = [np.max(np.abs(T3_HR_pct)), np.max(np.abs(T3_MAP_pct))]
 
-## Residual functions: data - model at the data times. From [17]
+# Residual functions: data - model at the data times. From [17]
 def funcPK(params_PK, params_PD):
     CLevo_m, CGut_m, C1855_m, C1896_m = simulate(list(params_PK) + list(params_PD), T1_regimen)[0:4]
     res_Levo = (np.array(T1_Levo) - sample(CLevo_m, T1_time)) / T1_range[0]
@@ -463,18 +451,18 @@ def funcPD(params_PD_free, params_PK):
     res_MAP = W_MAP * (T3_MAP_pct - sample(pct_curve(MAP_m), T3_t)) / T3_scale[1]
     return np.concatenate([res_HR, res_MAP])
 
-## 1. PK fitted to Table 1
+# PK fitted to Table 1
 fit_PK = least_squares(funcPK, params0[:N_PK], args=(params0[N_PK:],),
                        bounds=(P_lower[:N_PK], P_upper[:N_PK]))
 
-## 2. Free PD parameters fitted to Table 3, fitted PK held fixed
+# PD fitted to Table 3
 fit_PD = least_squares(funcPD, [params0[i] for i in i_free], args=(fit_PK.x,),
                        bounds=([P_lower[i] for i in i_free], [P_upper[i] for i in i_free]))
 
-## 3. One parameter set
+# One parameter set
 params_fit = list(fit_PK.x) + build_PD(fit_PD.x)
 
-## Standard errors: covariance = (J^T J)^-1 x residual variance SSR / (N - p)
+# Standard errors from the Jacobian: cov = (J^T J)^-1 x SSR / (N - p)
 def std_err(fit):
     J = fit.jac
     cov = np.linalg.pinv(J.T @ J) * np.sum(fit.fun ** 2) / (len(fit.fun) - len(fit.x))
@@ -484,19 +472,19 @@ SE_PD = dict(zip(PD_free, std_err(fit_PD)))
 P_SE = list(std_err(fit_PK)) + [SE_PD.get(n, np.nan) for n in PD_names]   # nan = fixed
 
 ############################# Fitted Model Runs ###############################
-# One fitted parameter set, run with each table's dosing regimen
+# Fitted parameters run with each table's regimen
 
-## Table 1 regimen [1]
+# Table 1 regimen [1]
 (CLevo_fit, CGut_fit, C1855_fit, C1896_fit, Ce_fit, Ce_eff_fit,
  R_sys_fit, SV_fit, HR_fit, CO_fit, MAP_fit, R_cereb_fit, V_cereb_fit) = simulate(params_fit, T1_regimen)
 
-## Table 3 regimen [3]
+# Table 3 regimen [3]
 (CLevo_T3_fit, CGut_T3_fit, C1855_T3_fit, C1896_T3_fit, Ce_T3_fit, Ce_eff_T3_fit,
  R_sys_T3_fit, SV_T3_fit, HR_T3_fit, CO_T3_fit, MAP_T3_fit, R_cereb_T3_fit, V_cereb_T3_fit) = simulate(params_fit, T3_regimen)
 
 ######################## Results of Fitted Parameters #########################
 
-## Parameter table: initial vs fitted, standard error, and bound check
+# Parameter table
 P_units = ["hrs", "-", "hrs", "hrs", "-", "hrs", "-", "ng/mL", "-", "-", "-", "hrs"]
 
 print("\nFitted Model Parameters")
@@ -509,8 +497,8 @@ for i, name in enumerate(P_names):
     on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
     print(f"{name:<13}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{SE_str:>10}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
 
-## Fit quality: R^2 and RMSE before and after parameterisation. From [17]
-# Table 3 in its original units: model % change applied to the Table 3 cohort baseline
+# Fit quality: R^2 and RMSE, initial vs fitted. From [17]
+# Model % change converted to Table 3 units (bpm, mmHg)
 def to_T3_units(y_model, y0_data):
     return y0_data * (1 + pct_curve(y_model) / 100)
 
@@ -532,7 +520,7 @@ for name, t_d, y_d, y_i, y_f, units in comparisons:
 
 ############################## Plot Figure ####################################
 
-## Figure 1: Table 1 data [1] vs initial and fitted model (Table 1 regimen)
+# Figure 1: Table 1 data [1] vs model
 fig, ax = plt.subplots(1, 3, figsize=(15, 4.5))
 plot_fit(ax[0], CLevo, CLevo_fit, T1_time, T1_Levo,
          "Levosimendan Concentration (ng/mL)", "Levosimendan (Parent)")
@@ -544,21 +532,20 @@ fig.suptitle("Table 1: Levosimendan and Metabolites")
 plt.tight_layout()
 plt.show()
 
-## Figure 2: Table 3 data [3] vs initial and fitted model (Table 3 regimen),
-## model % change applied to the Table 3 cohort baseline
+# Figure 2: Table 3 data [3] vs model
 fig, ax = plt.subplots(1, 2, figsize=(11, 4.5))
 plot_fit(ax[0], to_T3_units(HR_T3, T3_HR0), to_T3_units(HR_T3_fit, T3_HR0), T3_time, T3_HR,
          "HR (bpm)", "Heart Rate")
 plot_fit(ax[1], to_T3_units(MAP_T3, T3_MAP0), to_T3_units(MAP_T3_fit, T3_MAP0), T3_time, T3_MAP,
          "MAP (mmHg)", "Mean Arterial Pressure")
 for a in ax:
-    a.set_xlim(0, 2 * T3_time[-1])          # hrs, data window plus the same again
+    a.set_xlim(0, 2 * T3_time[-1])          
 fig.suptitle("Table 3: Heart Rate and MAP")
 plt.tight_layout()
 plt.show()
 
-## Code 1 plots: initial and fitted model (Table 1 regimen)
-time = (np.arange(0, int(T // dt)) * dt) / 24 # days, x-axis in real time not step number
+# Code 1 plots: initial vs fitted
+time = (np.arange(0, int(T // dt)) * dt) / 24 # days
 
 code1_plots = [
     (CLevo, CLevo_fit, "Levosimendan Concentration in Blood (ng/mL)", "Concentration of Levosimendan (Parent)"),
@@ -583,51 +570,52 @@ for y_i, y_f, ylabel, title in code1_plots:
 ###################### Section 3: Sensitivity Analysis ########################
 ###############################################################################
 
-# Sobol (global, variance-based) sensitivity analysis of the parameterised model. From [17]
-# All parameters in P_names (fitted and fixed) are varied together within -20 % to
-# +20 % of their parameterised values, with the model run on the Table 1 regimen.
-# Observed outputs focus on cerebral blood flow velocity: its peak, and its value
-# at day t_obs. Healthy CBF velocity is about 50 cm/s, and after one dose the
-# velocity drops back below that around day 7, so day 7 shows how long the
-# treatment keeps the patient near healthy flow.
-#
-# S1 = share of the output variance from that parameter alone (main effect). From [17]
-# ST = total share, including interactions with the other parameters
-#
-# N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
+# Sobol sensitivity analysis to see how much each parameter contributes to Cerebral Blood Flow
 
-N_sobol = 1024                          # Saltelli base samples
-t_obs = 7                               # days, observation day for v_cereb (drops below ~50 cm/s)
+# Two observation states:
+#       1. Peak (max) v_cereb
+#       2. v_cereb at day 7 (when drops <50cm/s) 
+#
+# All parameters varied together by ±20 %
+# S1 = effect of parameter alone
+# ST = effect along with interactions with others
+#
+# N_sobol * 26 = 26624 runs 
+#
+# Implementation from [17]
 
-## Scalar model outputs for one parameter set (same role as funcKs in [17])
+N_sobol = 1024      # Saltelli base samples. 1024 confirmed by conf being small
+t_obs = 7           # days 
+
+# Model outputs for one parameter set
 def funcS(params):
     out = simulate(list(params), T1_regimen)
-    V_s = np.array(out[12]) * 100               # cm/s, cerebral blood velocity
-    return [V_s.max(), V_s[int(round(t_obs * 24 / dt))]]
+    CBF = np.array(out[12]) * 100               # cm/s, cerebral blood flow
+    return [CBF.max(), CBF[int(round(t_obs * 24 / dt))]]
 
 S_outputs = ["v_cereb peak (cm/s)", f"v_cereb day {t_obs} (cm/s)"]
 
 if run_sensitivity:
 
-    ## Problem statement: number of parameters, names and bounds (-20 % to +20 %). From [17]
+    # Parameters and and ±20 % bounds
     problem = {
         'num_vars': len(P_names),
         'names': P_names,
         'bounds': [[p * 0.8, p * 1.2] for p in params_fit]}
 
-    param_values = saltelli.sample(problem, N_sobol)    # Saltelli sampler. From [17]
+    param_values = saltelli.sample(problem, N_sobol)    # Saltelli sampler
     Y = np.zeros([param_values.shape[0], len(S_outputs)])
 
-    # Runs each sample through the model. From [17]
+    # Runs each sample through the model
     for i, X in enumerate(param_values):
         Y[i] = funcS(X)
         if i % (len(param_values) // 10) == 0:
             print(f"Sobol runs: {i}/{len(param_values)}")
 
-    ## Sobol indices for each output. From [17]
+    # Sobol indices for each output
     Si_all = [sobol.analyze(problem, Y[:, k]) for k in range(len(S_outputs))]
 
-    print("\nSobol Sensitivity Analysis (S1 = parameter alone, ST = including interactions)")
+    print("\nSobol Sensitivity Analysis")
     for name, Si in zip(S_outputs, Si_all):
         print(f"\n{name}")
         print(f"{'Parameter':<13}{'S1':>8}{'S1 conf':>9}{'ST':>8}{'ST conf':>9}")
@@ -635,7 +623,7 @@ if run_sensitivity:
         for j, p in enumerate(P_names):
             print(f"{p:<13}{Si['S1'][j]:>8.3f}{Si['S1_conf'][j]:>9.3f}{Si['ST'][j]:>8.3f}{Si['ST_conf'][j]:>9.3f}")
 
-    ## S1 and ST bar chart for each output
+    # S1 and ST bar chart for each output
     fig, ax = plt.subplots(1, 2, figsize=(14, 4.5))
     x = np.arange(len(P_names))
     for a, name, Si in zip(ax.flat, S_outputs, Si_all):
@@ -645,7 +633,7 @@ if run_sensitivity:
         a.set_ylabel("Sobol index")
         a.set_title(name)
         a.legend()
-    fig.suptitle("Sobol Sensitivity Analysis (Table 1 regimen, parameters -20 % to +20 %)")
+    fig.suptitle("Sobol Sensitivity Analysis (±20 %)")
     plt.tight_layout()
     plt.show()
 
