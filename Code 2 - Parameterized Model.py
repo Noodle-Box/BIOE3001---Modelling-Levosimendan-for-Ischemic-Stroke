@@ -26,6 +26,7 @@ import matplotlib.pyplot as plt
 
 T1_dose = 100                       # ng/kg/min, dosing infusion rate
 T1_T_inf = 24                       # hrs, infusion duration
+T1_load = 0                         # ug/kg, no loading bolus. From [1]
 
 ## Patient specific parameters
 T1_BW = 80                          # kg, sample body weight
@@ -62,18 +63,11 @@ T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
 T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
 
 
-####################### Dose Scheduling and Time Steps ########################
+############################### Time Course ###################################
 ## Time course: set in days (runs in hrs for better computation accuracy)
+## Single dose only: Tables 1 and 3 each report one dosing course
 
-### Run Mode Toggle ###
-# TRUE = scheduling on, dosing schedule to maintain homeostasis levels
-# FALSE = scheduling off, 1 dose for shape and quantity analysis
-repeat_dosing = False               # BOOLEAN, CHANGE WHEN NEEDED
-
-if repeat_dosing:
-    T_days = 30                     # days, time course to show repeat dosing
-else:
-    T_days = 12                     # days, time course
+T_days = 12                         # days, time course (covers the 240 hr Table 1 data)
 
 dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
@@ -97,26 +91,12 @@ P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
 r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
 
 ############################# Parameters: Dosing ##############################
-# Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24 hrs
-# No loading dose
-# Usual range: 0.05 - 0.2ug/kg/min
-# From [16]
+# Each regimen = [loading dose (ng/kg), infusion rate (ng/kg/min), infusion duration (hrs)]
+# Built from the Table 1 and Table 3 input data, so simulate() can run either one
+# Usual range: 0.05 - 0.2ug/kg/min. From [16]
 
-dose_load = 0                       # ng/kg, loading dose at t = 0
-dose_sup = 100                      # ng/kg/min, supplementary dosing infusion rate
-dose_inf = 24                       # hrs, infusion duration
-dose_sch = 5                        # days, dose scheduling for repeated dosing
-
-# Repeat the dosing based on Boolean "repeat_dosing" in Dose Scheduling
-if repeat_dosing:
-    T_rep = dose_sch * 24           # hrs, interval between infusion starts
-    N_inf = int(np.ceil(T / T_rep)) # number of infusions that start within the time course
-else:
-    T_rep = T                       # hrs, single dose: one cycle covers the whole time course
-    N_inf = 1                       # one infusion only
-
-# Time steps where each repeat infusion starts 
-start_steps = [int(round(k * T_rep / dt)) for k in range(1, N_inf)]
+T1_regimen = [T1_load * 1000, T1_dose, T1_T_inf]  # Table 1 [1], ug/kg x 1000 -> ng/kg
+T3_regimen = [T3_load * 1000, T3_dose, T3_T_inf]  # Table 3 [3], ug/kg x 1000 -> ng/kg
 
 ################### Parameters: Drug (Pharmacokinetics) #######################
 
@@ -137,19 +117,15 @@ C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED
 C0_levo = 25.00                     # ng/mL, intercept at t=0 (CALCULATED FROM [1])
 V_kg = 132                          # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
 
-# Dose conversions for main loop
-R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
+# Dose conversions (dose-independent). R_inf, L_inf, C0_inf and C_dose_load
+# depend on the regimen, so they are calculated inside simulate()
 dose_ref = T1_dose                  # ng/kg/min, Table 1 dose that C_slope and C0_levo were measured at
 phi = C_slope / (dose_ref * 60 / V_kg) # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
 C0_per_dose = C0_levo / dose_ref    # ng/mL per (ng/kg/min), intercept per unit dose (DERIVED)
-C0_inf = C0_per_dose * dose_sup     # ng/mL, initial jump for this dose (DERIVED)
-L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
-C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
 # Parameters: Gut Transit Compartment (Time Delay between parent and metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
 gut_rate = 53                       # hrs, gut release rate From [13]
-kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
 
 # Parameters: OR-1855 Metabolite (Inactive)
 m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
@@ -157,12 +133,10 @@ Vm_ratio = 0.5                      # parent-to-metabolite volume ratio (FITTED 
 
 # Parameters: OR-1896 Metabolite (Active)
 m2_half = 7.7                       # Hrs, OR-1896 half-life (FITTED)
-k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, half-life decay (DERIVED)
 f2 = 0.61                           # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
 ac_rate = 9.6                       # Hrs, acetylation rate. From [13]
-kac = (np.log(2)/ac_rate)*dt        # 1/Hrs, acetylation as half life(DERIVED)
 
 ################### Parameters: Body (Pharmacodynamics) #######################
 # PD is kept in SI for easy conversion
@@ -203,15 +177,28 @@ EC50_cereb = 0.5                    # ng/mL (Fitted)
 
 # Delay between plasma Ce and drug effect at tissue
 keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted)
-k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
+
+############################ Parameters to Fit ################################
+# Initial values are the Code 1 values above. Order is fixed:
+# PK set by Table 1 first, then PD set by Table 3
+
+P_names = ["gut_rate", "Vm_ratio", "ac_rate", "m2_half",   # PK, Table 1
+           "f0", "keo_thalf",                              # PD, Table 3
+           "Emax_R", "EC50_sys", "dSVmax", "EC50_SV", "Emax_HR", "EC50_HR"]
+
+params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
+           f0, keo_thalf,
+           Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR]
 
 ### Heart (Mass Transfer System) ###
 #
 # Takes effect-site drug Ce_eff and runs three Hill Kinetic responses:
 # Systemic resistance, stroke volume and heart rate.
+# P_HB = [Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR] (fitted values)
 # Outputs MAP --> Brain
 #
-def heart_block(Ce_eff_v):
+def heart_block(Ce_eff_v, P_HB):
+    Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR = P_HB
     R_sys_v = R_sys0 * (1 - Emax_R * Ce_eff_v / (EC50_sys + Ce_eff_v))
     SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50_SV + Ce_eff_v))
     HR_v = HR0 * (1 + Emax_HR * Ce_eff_v / (EC50_HR + Ce_eff_v))
@@ -229,93 +216,128 @@ def cerebral_block(Ce_val, MAP_v):
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
-######################### Initial Conditions ##################################
-CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
-Cdose_load = [None] * int(T // dt)      # ng/mL, loading dose part of the parent
-CGut       = [None] * int(T // dt)      # ng/mL, gut transit compartment
-C1855      = [None] * int(T // dt)      # ng/mL, OR-1855
-C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
-Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
-Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
+############################# Model Function ##################################
+# Runs the Code 1 model for one parameter set and one dosing regimen, so the
+# parameterisation can call it many times (Week 10 fentanyl example: model loop
+# inside the fitting function)
+#
+# params  = fitted parameters, same order as P_names
+# regimen = [loading dose (ng/kg), infusion rate (ng/kg/min), infusion duration (hrs)]
+#
+def simulate(params, regimen):
 
-R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
-SV         = [None] * int(T // dt)      # m^3, stroke volume
-HR         = [None] * int(T // dt)      # Hz, heart rate
-CO         = [None] * int(T // dt)      # m^3/s, cardiac output
-MAP        = [None] * int(T // dt)      # Pa, mean arterial pressure
-R_cereb    = [None] * int(T // dt)      # Pa.s/m^3, cerebral resistance
-V_cereb    = [None] * int(T // dt)      # m/s, cerebral blood velocity
+    ### Unpack parameters and regimen ###
+    gut_rate, Vm_ratio, ac_rate, m2_half, f0, keo_thalf = params[0:6]
+    P_HB = params[6:12]                 # heart block PD parameters
+    dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
-CLevo[0] = C0_inf + C_dose_load        # ng/mL, initial + loading dose
-Cdose_load[0] = C_dose_load             # ng/mL, just loading dose
-CGut[0]  = 0                            # ng/mL
-C1855[0] = 0                            # ng/mL
-C1896[0] = 0                            # ng/mL
-Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, quick implementation of effective drug
-Ce_eff[0] = 0                           # ng/mL
+    ### Rate constants (pre-multiplied by dt) ###
+    kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
+    kac = (np.log(2) / ac_rate) * dt    # 1/Hrs, acetylation as half life (DERIVED)
+    k2 = (np.log(2) / m2_half) * dt     # 1/Hrs, OR-1896 half-life decay (DERIVED)
+    k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, effect-compartment delay (DERIVED)
 
-# Implementing baseline patient parameters as initial conditions
-R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0])
-R_cereb[0], V_cereb[0] = cerebral_block(Ce_eff[0], MAP[0])
+    ### Dose conversions for main loop ###
+    R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
+    C0_inf = C0_per_dose * dose_sup     # ng/mL, initial jump for this dose (DERIVED)
+    L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
+    C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
-############################# Main Loop #######################################
+    ### Initial Conditions ###
+    CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
+    Cdose_load = [None] * int(T // dt)      # ng/mL, loading dose part of the parent
+    CGut       = [None] * int(T // dt)      # ng/mL, gut transit compartment
+    C1855      = [None] * int(T // dt)      # ng/mL, OR-1855
+    C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
+    Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
+    Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
 
-for t in range(0, int(T // dt - 1)):
+    R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
+    SV         = [None] * int(T // dt)      # m^3, stroke volume
+    HR         = [None] * int(T // dt)      # Hz, heart rate
+    CO         = [None] * int(T // dt)      # m^3/s, cardiac output
+    MAP        = [None] * int(T // dt)      # Pa, mean arterial pressure
+    R_cereb    = [None] * int(T // dt)      # Pa.s/m^3, cerebral resistance
+    V_cereb    = [None] * int(T // dt)      # m/s, cerebral blood velocity
 
-    ### Levosimendan (ACTIVE) ###
+    CLevo[0] = C0_inf + C_dose_load        # ng/mL, initial + loading dose
+    Cdose_load[0] = C_dose_load             # ng/mL, just loading dose
+    CGut[0]  = 0                            # ng/mL
+    C1855[0] = 0                            # ng/mL
+    C1896[0] = 0                            # ng/mL
+    Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, quick implementation of effective drug
+    Ce_eff[0] = 0                           # ng/mL
 
-    # dose_loading dose part: given at t = 0, cleared by first-order decay from the
-    # start (the infusion loss L_inf only acts on the infused drug)
-    dCdose_load = -k0 * Cdose_load[t]
-    Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
-    
-    # Check hrs since the current infusion started (for single dose or scheduling)
-    # If within "dose_inf" hrs, drug is infusing
-    t_cycle = (t * dt) % T_rep       
-    if t_cycle < dose_inf and t * dt < N_inf * T_rep:
-        dCLevo = R_inf - L_inf + dCdose_load
-        Form = m1 * Vm_ratio * (L_inf + k0 * Cdose_load[t])
+    # Implementing baseline patient parameters as initial conditions
+    R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], P_HB)
+    R_cereb[0], V_cereb[0] = cerebral_block(Ce_eff[0], MAP[0])
+
+    ### Main Loop ###
+
+    for t in range(0, int(T // dt - 1)):
+
+        ### Levosimendan (ACTIVE) ###
+
+        # dose_loading dose part: given at t = 0, cleared by first-order decay from the
+        # start (the infusion loss L_inf only acts on the infused drug)
+        dCdose_load = -k0 * Cdose_load[t]
+        Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
         
-    # Else, drug is naturally expelled with decay
-    else:
-        dCLevo = -k0 * CLevo[t]
-        Form = m1 * Vm_ratio * k0 * CLevo[t]
-    CLevo[t + 1] = CLevo[t] + dCLevo
+        # If within "dose_inf" hrs, drug is infusing
+        if t * dt < dose_inf:
+            dCLevo = R_inf - L_inf + dCdose_load
+            Form = m1 * Vm_ratio * (L_inf + k0 * Cdose_load[t])
+            
+        # Else, drug is naturally expelled with decay
+        else:
+            dCLevo = -k0 * CLevo[t]
+            Form = m1 * Vm_ratio * k0 * CLevo[t]
+        CLevo[t + 1] = CLevo[t] + dCLevo
 
-    # Each repeat infusion restarts with the same fast-distribution jump as t = 0
-    if (t + 1) in start_steps:
-        CLevo[t + 1] += C0_inf
+        ### Gut Transit Compartment (time capture) ###
+        if t * dt < T_gut:
+            Rel = 0
+        else:
+            Rel = kg * CGut[t]
 
-    ### Gut Transit Compartment (time capture) ###
-    if t * dt < T_gut:
-        Rel = 0
-    else:
-        Rel = kg * CGut[t]
+        dCGut = Form - Rel
+        CGut[t + 1] = CGut[t] + dCGut
 
-    dCGut = Form - Rel
-    CGut[t + 1] = CGut[t] + dCGut
+        ### OR-1855 (INACTIVE Metabolite) ###
+        # Formed by gut metabolism, lost from acetylation (1896) 
+        dC1855 = Rel - kac * C1855[t]
+        C1855[t + 1] = C1855[t] + dC1855
 
-    ### OR-1855 (INACTIVE Metabolite) ###
-    # Formed by gut metabolism, lost from acetylation (1896) 
-    dC1855 = Rel - kac * C1855[t]
-    C1855[t + 1] = C1855[t] + dC1855
+        ### OR-1896 (ACTIVE Metabolite) ###
+        # Formed by acetylation and self decay
+        dC1896 = kac * C1855[t] - k2 * C1896[t]
+        C1896[t + 1] = C1896[t] + dC1896
 
-    ### OR-1896 (ACTIVE Metabolite) ###
-    # Formed by acetylation and self decay
-    dC1896 = kac * C1855[t] - k2 * C1896[t]
-    C1896[t + 1] = C1896[t] + dC1896
+        ### Active Drug Concentration (PK Output)
+        Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-    ### Active Drug Concentration (PK Output)
-    Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
+        ### Effect Compartment (delay between plasma and tissue) ###
+        Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
 
-    ### Effect Compartment (delay between plasma and tissue) ###
-    Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
+        ### Heart PD (Mass Transfer System) ###
+        R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], P_HB)
 
-    ### Heart PD (Mass Transfer System) ###
-    R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1])
+        ### Cerebral Vasculature PD (Mass Transfer System) ###
+        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
 
-    ### Cerebral Vasculature PD (Mass Transfer System) ###
-    R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
+    return (CLevo, CGut, C1855, C1896, Ce, Ce_eff,
+            R_sys, SV, HR, CO, MAP, R_cereb, V_cereb)
+
+############################ Initial Model Runs ###############################
+# Code 1 initial values, run with each table's dosing regimen
+
+## Table 1 regimen [1]
+(CLevo, CGut, C1855, C1896, Ce, Ce_eff,
+ R_sys, SV, HR, CO, MAP, R_cereb, V_cereb) = simulate(params0, T1_regimen)
+
+## Table 3 regimen [3]
+(CLevo_T3, CGut_T3, C1855_T3, C1896_T3, Ce_T3, Ce_eff_T3,
+ R_sys_T3, SV_T3, HR_T3, CO_T3, MAP_T3, R_cereb_T3, V_cereb_T3) = simulate(params0, T3_regimen)
 
 ############################## Plot Figure ####################################
 
