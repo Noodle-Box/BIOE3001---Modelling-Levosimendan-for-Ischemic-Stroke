@@ -149,13 +149,12 @@ dSVmax = 0.28                            # %, maximum SV increase from Levosimen
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                           # %, maximum HR increase from Levosimendan. From [2][3]
 
-
-# CLEAN THIS UP
 # Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
-# both respond faster and mostly to the parent drug. Only SV uses the slow Ce_eff
-# (values from PD Fit Experiments, held fixed)
-p_HR = 6                                 # parent potency on HR and vessels, relative to its free fraction f0
-keo_HR_thalf = 6                         # hrs, HR effect-site delay
+# Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
+# Values fitted but parameters supported by [3] and [18]
+p_HR = 6                            # parent potency on HR and vessels (Fitted)
+keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
+k_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
 # Hill Kinetics: drug dilation of the systemic (body) and cerebral vasculature
 Emax_R = 0.4                             # fractional max R_sys and R_cereb drop. (Fitted)
@@ -578,7 +577,7 @@ for y_i, y_f, ylabel, title in code1_plots:
 #
 # N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
 
-run_sensitivity = True                  # BOOLEAN, CHANGE WHEN NEEDED
+run_sensitivity = False                 # BOOLEAN, CHANGE WHEN NEEDED
 N_sobol = 1024                          # Saltelli base samples
 t_obs = 7                               # days, observation day for v_cereb (drops below ~50 cm/s)
 
@@ -662,3 +661,4 @@ if run_sensitivity:
 # [15] {Mirza, 2024}
 # [16] {SafeCareVictoria, 2018}
 # [17] {Mann, 2016}
+# [18] {Lilleberg, 2007}

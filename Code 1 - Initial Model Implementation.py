@@ -154,12 +154,11 @@ keo_thalf = 10                      # hrs, compartment-effect time delay (Fitted
 k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 
 # Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
-# both respond faster and mostly to the parent drug. Only SV uses the slow Ce_eff
-# TO DO: find clinical research for p_HR and keo_HR_thalf (currently set from the
-#        Code 2 PD fit experiments, not from literature)
-p_HR = 6                            # parent potency on HR and vessels, relative to its free fraction f0
-keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels
-k_HR = (np.log(2) / keo_HR_thalf) * dt # 1/hrs, pre-multiplied by dt
+# Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
+# Values fitted but parameters supported by [3] and [18]
+p_HR = 6                            # parent potency on HR and vessels (Fitted)
+keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
+k_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
 ### Heart (Mass Transfer System) ###
 #
@@ -371,3 +370,5 @@ plt.show()
 # [14] {Slawsky, 2000}
 # [15] {Mirza, 2024}
 # [16] {SafeCareVictoria, 2018}
+# [17] {Mann, 2016}
+# [18] {Lilleberg, 2007}
