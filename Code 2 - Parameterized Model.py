@@ -151,6 +151,12 @@ EC50_SV = 0.497                          # ng/mL (Fitted)
 Emax_HR = 0.11                           # %, maximum HR increase from Levosimendan. From [2][3]
 EC50_HR = 0.57                           # ng/mL, Free Ce hill kinetic term. Derived from [2]
 
+# Fast parent-weighted effect (Ce_HR) on HR and the vasculature (R_sys, R_cereb):
+# both respond faster and mostly to the parent drug. Only SV uses the slow Ce_eff
+# (values from PD Fit Experiments, held fixed)
+p_HR = 6                                 # parent potency on HR and vessels, relative to its free fraction f0
+keo_HR_thalf = 6                         # hrs, HR effect-site delay
+
 # Hill Kinetics: drug dilation of the systemic (body) vasculature
 Emax_R = 0.4                             # fractional max R_sys drop. (Fitted)
 EC50_sys = 0.498                         # ng/mL (Fitted)
@@ -174,9 +180,9 @@ R_cereb0 = CPP0 / Q_cereb0               # Pa.s/m^3, baseline cerebral resistanc
 
 # Hill kinetics for drug binding to cerebral vasculature resistance
 Emax_cereb = 0.405                       # fractional max R_cereb drop (Fitted)
-EC50_cereb = 0.5                         # ng/mL (Fitted)
+EC50_cereb = EC50_sys                    # ng/mL, shared vascular EC50 (tied to EC50_sys)
 
-# Delay between plasma Ce and drug effect at tissue
+# Delay between plasma Ce and drug effect at tissue (stroke volume)
 keo_thalf = 10                           # hrs, compartment-effect time delay (Fitted)
 
 ############################ Parameters to Fit ################################
@@ -195,26 +201,27 @@ params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
 ### Heart (Mass Transfer System) ###
 #
 # Takes effect-site drug Ce_eff and runs three Hill Kinetic responses:
-# Systemic resistance, stroke volume and heart rate.
+# Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff).
 # P_HB = [Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR] (fitted values)
 # Outputs MAP --> Brain
 #
-def heart_block(Ce_eff_v, P_HB):
+def heart_block(Ce_eff_v, Ce_HR_v, P_HB):
     Emax_R, EC50_sys, dSVmax, EC50_SV, Emax_HR, EC50_HR = P_HB
-    R_sys_v = R_sys0 * (1 - Emax_R * Ce_eff_v / (EC50_sys + Ce_eff_v))
+    R_sys_v = R_sys0 * (1 - Emax_R * Ce_HR_v / (EC50_sys + Ce_HR_v))
     SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50_SV + Ce_eff_v))
-    HR_v = HR0 * (1 + Emax_HR * Ce_eff_v / (EC50_HR + Ce_eff_v))
+    HR_v = HR0 * (1 + Emax_HR * Ce_HR_v / (EC50_HR + Ce_HR_v))
     CO_v = SV_v * HR_v
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
 ### Cerebral Vasculature (Mass Transfer System) ###
 #
-# Takes lagged effective drug and MAP (both from the heart block)
+# Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
+# EC50_v = EC50_sys (shared vascular EC50, so v_cereb does not dip below baseline)
 # Equations from [5].
-def cerebral_block(Ce_val, MAP_v):
-    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50_cereb + Ce_val))
+def cerebral_block(Ce_val, MAP_v, EC50_v):
+    Cerebral_R = R_cereb0 * (1 - Emax_cereb * Ce_val / (EC50_v + Ce_val))
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
@@ -238,6 +245,7 @@ def simulate(params, regimen):
     kac = (np.log(2) / ac_rate) * dt        # 1/Hrs, acetylation as half life 
     k2 = (np.log(2) / m2_half) * dt         # 1/Hrs, OR-1896 half-life decay 
     k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, effect-compartment delay 
+    k_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, HR effect-site delay
 
     ### Dose conversions for main loop ###
     R_inf = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
@@ -253,6 +261,7 @@ def simulate(params, regimen):
     C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
     Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
     Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
+    Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc. for HR and vessels (parent weighted by p_HR)
 
     R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
     SV         = [None] * int(T // dt)      # m^3, stroke volume
@@ -269,10 +278,11 @@ def simulate(params, regimen):
     C1896[0] = 0                            # ng/mL
     Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, quick implementation of effective drug
     Ce_eff[0] = 0                           # ng/mL
+    Ce_HR[0] = 0                            # ng/mL
 
     # Implementing baseline patient parameters as initial conditions
-    R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], P_HB)
-    R_cereb[0], V_cereb[0] = cerebral_block(Ce_eff[0], MAP[0])
+    R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0], P_HB)
+    R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0], P_HB[1])
 
     ### Main Loop ###
 
@@ -320,12 +330,13 @@ def simulate(params, regimen):
 
         ### Effect Compartment (delay between plasma and tissue) ###
         Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
+        Ce_HR[t + 1] = Ce_HR[t] + k_HR * (p_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
         ### Heart PD (Mass Transfer System) ###
-        R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], P_HB)
+        R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], P_HB)
 
         ### Cerebral Vasculature PD (Mass Transfer System) ###
-        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_eff[t + 1], MAP[t + 1])
+        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], P_HB[1])
 
     return (CLevo, CGut, C1855, C1896, Ce, Ce_eff,
             R_sys, SV, HR, CO, MAP, R_cereb, V_cereb)
@@ -381,7 +392,8 @@ def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
 #
 # 1. PK parameters fitted to Table 1 (Table 1 regimen). The PD parameters do
 #    not affect Table 1, so they stay at their initial values here
-# 2. PD parameters fitted to Table 3 (Table 3 regimen), with the fitted PK fixed
+# 2. PD parameters fitted to Table 3 (Table 3 regimen), with the fitted PK fixed.
+#    Unidentifiable PD parameters are held at their Code 1 values (P_fixed)
 # 3. Fitted PK + PD combined into one parameter set, params_fit
 #
 # least_squares with bounds keeps fractions within 0-1 and rates positive. From [17]
@@ -399,11 +411,28 @@ P_upper = [200, 10, 200, 200,
 ## Table 1: each curve divided by its own data range, so all three carry equal weight
 T1_range = [np.ptp(T1_Levo), np.ptp(T1_m1), np.ptp(T1_m2)]  # ng/mL, max - min
 
+## PD parameters held fixed (not identifiable from Table 3, see PD Fit Experiments)
+P_fixed = ["f0", "EC50_sys", "dSVmax", "EC50_SV", "EC50_HR"]
+PD_names = P_names[N_PK:]
+PD_free = [n for n in PD_names if n not in P_fixed]
+i_free = [P_names.index(n) for n in PD_free]
+
+# Full PD list (P_names order) from the fitted free values + fixed Code 1 values
+def build_PD(x):
+    P = dict(zip(P_names, params0))
+    P.update(zip(PD_free, x))
+    return [P[n] for n in PD_names]
+
 ## Table 3: % change from baseline. t = 0 left out (0 % by construction)
 T3_t = T3_time[1:]
 T3_HR_pct = pct(T3_HR, T3_HR0)[1:]
 T3_MAP_pct = pct(T3_MAP, T3_MAP0)[1:]
 T3_CI_pct = pct(T3_CI, T3_CI0)[1:]      # CI = CO / BSA, so % CI = % CO (BSA cancels)
+
+## Table 3 weights: each output divided by its largest % change so they count
+## equally, then multiplied by W_. HR and MAP emphasised, CI low weight to anchor SV
+W_HR, W_MAP, W_CI = 0.4, 0.4, 0.2
+T3_scale = [np.max(np.abs(T3_HR_pct)), np.max(np.abs(T3_MAP_pct)), np.max(np.abs(T3_CI_pct))]
 
 ## Residual functions: data - model at the data times. From [17]
 def funcPK(params_PK, params_PD):
@@ -413,23 +442,23 @@ def funcPK(params_PK, params_PD):
     res_1896 = (np.array(T1_m2) - sample(C1896_m, T1_time)) / T1_range[2]
     return np.concatenate([res_Levo, res_1855, res_1896])
 
-def funcPD(params_PD, params_PK):
-    HR_m, CO_m, MAP_m = simulate(list(params_PK) + list(params_PD), T3_regimen)[8:11]
-    res_HR = T3_HR_pct - sample(pct_curve(HR_m), T3_t)
-    res_MAP = T3_MAP_pct - sample(pct_curve(MAP_m), T3_t)
-    res_CI = T3_CI_pct - sample(pct_curve(CO_m), T3_t)
+def funcPD(params_PD_free, params_PK):
+    HR_m, CO_m, MAP_m = simulate(list(params_PK) + build_PD(params_PD_free), T3_regimen)[8:11]
+    res_HR = W_HR * (T3_HR_pct - sample(pct_curve(HR_m), T3_t)) / T3_scale[0]
+    res_MAP = W_MAP * (T3_MAP_pct - sample(pct_curve(MAP_m), T3_t)) / T3_scale[1]
+    res_CI = W_CI * (T3_CI_pct - sample(pct_curve(CO_m), T3_t)) / T3_scale[2]
     return np.concatenate([res_HR, res_MAP, res_CI])
 
 ## 1. PK fitted to Table 1
 fit_PK = least_squares(funcPK, params0[:N_PK], args=(params0[N_PK:],),
                        bounds=(P_lower[:N_PK], P_upper[:N_PK]))
 
-## 2. PD fitted to Table 3, fitted PK held fixed
-fit_PD = least_squares(funcPD, params0[N_PK:], args=(fit_PK.x,),
-                       bounds=(P_lower[N_PK:], P_upper[N_PK:]))
+## 2. Free PD parameters fitted to Table 3, fitted PK held fixed
+fit_PD = least_squares(funcPD, [params0[i] for i in i_free], args=(fit_PK.x,),
+                       bounds=([P_lower[i] for i in i_free], [P_upper[i] for i in i_free]))
 
 ## 3. One parameter set
-params_fit = list(fit_PK.x) + list(fit_PD.x)
+params_fit = list(fit_PK.x) + build_PD(fit_PD.x)
 
 ## Standard errors: covariance = (J^T J)^-1 x residual variance SSR / (N - p)
 def std_err(fit):
@@ -437,7 +466,8 @@ def std_err(fit):
     cov = np.linalg.pinv(J.T @ J) * np.sum(fit.fun ** 2) / (len(fit.fun) - len(fit.x))
     return np.sqrt(np.diag(cov))
 
-P_SE = list(std_err(fit_PK)) + list(std_err(fit_PD))
+SE_PD = dict(zip(PD_free, std_err(fit_PD)))
+P_SE = list(std_err(fit_PK)) + [SE_PD.get(n, np.nan) for n in PD_names]   # nan = fixed
 
 ############################# Fitted Model Runs ###############################
 # One fitted parameter set, run with each table's dosing regimen
@@ -460,9 +490,10 @@ print(f"{'Parameter':<11}{'Initial':>9}{'Fitted':>10}{'SE':>10}{'Change':>9}  {'
 print("-" * 70)
 for i, name in enumerate(P_names):
     change = (params_fit[i] - params0[i]) / params0[i] * 100
-    set_by = "Table 1" if i < N_PK else "Table 3"
+    set_by = "Table 1" if i < N_PK else ("Fixed" if name in P_fixed else "Table 3")
+    SE_str = "-" if name in P_fixed else f"{P_SE[i]:.3g}"
     on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
-    print(f"{name:<11}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{P_SE[i]:>10.3g}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
+    print(f"{name:<11}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{SE_str:>10}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
 
 ## Fit quality: R^2 and RMSE before and after parameterisation. From [17]
 # Table 3 in its original units: model % change applied to the Table 3 cohort baseline
