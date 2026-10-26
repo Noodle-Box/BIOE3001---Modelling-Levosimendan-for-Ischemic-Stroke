@@ -568,25 +568,27 @@ for y_i, y_f, ylabel, title in code1_plots:
 # Sobol (global, variance-based) sensitivity analysis of the parameterised model. From [17]
 # All parameters in P_names (fitted and fixed) are varied together within -20 % to
 # +20 % of their parameterised values, with the model run on the Table 1 regimen.
-# Each run returns 4 scalar outputs, so one set of samples covers every output.
+# Observed outputs focus on cerebral blood flow velocity: its peak, and its value
+# at day t_obs. Healthy CBF velocity is about 50 cm/s, and after one dose the
+# velocity drops back below that around day 7, so day 7 shows how long the
+# treatment keeps the patient near healthy flow.
 #
 # S1 = share of the output variance from that parameter alone (main effect). From [17]
 # ST = total share, including interactions with the other parameters
 #
 # N_sobol * (2 * 12 + 2) = 26,624 model runs (about 6 min). Set run_sensitivity = False to skip
 
-run_sensitivity = False                  # BOOLEAN, CHANGE WHEN NEEDED
-N_sobol = 1024                            # Saltelli base samples
+run_sensitivity = True                  # BOOLEAN, CHANGE WHEN NEEDED
+N_sobol = 1024                          # Saltelli base samples
+t_obs = 7                               # days, observation day for v_cereb (drops below ~50 cm/s)
 
 ## Scalar model outputs for one parameter set (same role as funcKs in [17])
 def funcS(params):
     out = simulate(list(params), T1_regimen)
     V_s = np.array(out[12]) * 100               # cm/s, cerebral blood velocity
-    MAP_s = np.array(out[10]) / MMHG_TO_PA      # mmHg
-    HR_s = np.array(out[8]) * 60                # bpm
-    return [V_s.max(), MAP_s.min(), HR_s.max(), V_s[-1]]
+    return [V_s.max(), V_s[int(round(t_obs * 24 / dt))]]
 
-S_outputs = ["v_cereb peak (cm/s)", "MAP min (mmHg)", "HR max (bpm)", f"v_cereb day {T_days} (cm/s)"]
+S_outputs = ["v_cereb peak (cm/s)", f"v_cereb day {t_obs} (cm/s)"]
 
 if run_sensitivity:
 
@@ -617,7 +619,7 @@ if run_sensitivity:
             print(f"{p:<13}{Si['S1'][j]:>8.3f}{Si['S1_conf'][j]:>9.3f}{Si['ST'][j]:>8.3f}{Si['ST_conf'][j]:>9.3f}")
 
     ## S1 and ST bar chart for each output
-    fig, ax = plt.subplots(2, 2, figsize=(14, 8))
+    fig, ax = plt.subplots(1, 2, figsize=(14, 4.5))
     x = np.arange(len(P_names))
     for a, name, Si in zip(ax.flat, S_outputs, Si_all):
         a.bar(x - 0.2, Si['S1'], 0.4, label="S1 (parameter alone)")
