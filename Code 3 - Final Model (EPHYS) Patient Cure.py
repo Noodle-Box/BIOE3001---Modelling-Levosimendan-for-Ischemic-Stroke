@@ -46,6 +46,12 @@ if repeat_dosing:
 else:
     T_days = 12                     # days, time course
 
+### Plot Toggle ###
+# TRUE = also show the raw and processed EPHYS data plots (Section 2)
+# FALSE = treatment plots only (Section 3)
+
+show_EPHYS_plots = False            # BOOLEAN, CHANGE WHEN NEEDED
+
 dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
 
@@ -58,12 +64,13 @@ MMHG_TO_PA = 133.322                # Pa per mmHg
 ML_TO_M3 = 1e-6                     # m^3 per mL
 
 # Patient-specific heart baselines
-HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [10]
-SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11]
-MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [11]
+# HR0, MAP0 and v_cereb0 are set per patient in Section 3 from the EPHYS data
+HR0 = None                          # Hz, baseline heart rate (Section 2)
+SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11] (not measured in EPHYS)
+MAP0 = None                         # Pa, baseline MAP (Section 2)
 
 # Patient-specific brain baselines
-v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
+v_cereb0 = None                     # m/s, baseline MCA velocity (Section 2)
 P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
 r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
 
@@ -76,16 +83,9 @@ dose_sup = 100                      # ng/kg/min, supplementary dosing infusion r
 dose_inf = 24                       # hrs, infusion duration
 dose_sch = 5                        # days, dose scheduling for repeated dosing
 
-# Repeat dosing for scheduling
-if repeat_dosing:
-    T_rep = dose_sch * 24           # hrs, interval between infusion starts
-    N_inf = int(np.ceil(T / T_rep)) # number of infusions
-else:
-    T_rep = T                       # hrs, single dose
-    N_inf = 1                       # one infusion only
-
-# Time steps where repeat infusion starts 
-start_steps = [int(round(k * T_rep / dt)) for k in range(1, N_inf)]
+# Default regimen, passed to simulate() (Section 3 builds the patient regimens)
+regimen_default = dict(dose_load=dose_load, dose_sup=dose_sup,
+                       dose_inf=dose_inf, dose_sch=dose_sch)
 
 ################### Parameters: Drug (Pharmacokinetics) #######################
 
@@ -106,15 +106,11 @@ C_slope = 1.3388                    # ng/mL/hr, net rise during infusion (FITTED
 C0_levo = 25.00                     # ng/mL, intercept at t=0 (CALCULATED FROM [1])
 V_kg = 132                          # mL/kg, parent volume of distribution (BEHAVIOUR FROM [1])
 
-# Dose conversions for main loop (dose-scaled as in Code 2, so any infusion rate
-# can be used for the patient regimen; identical to Code 1 at 100 ng/kg/min)
+# Dose scaling (as in Code 2), so any infusion rate can be used for the patient
+# regimen. Per-regimen dose conversions are done in simulate()
 
-R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
 dose_ref = 100                      # ng/kg/min, Table 1 dose that C_slope and C0_levo were measured at [1]
 phi = C_slope / (dose_ref * 60 / V_kg) # fraction of infused drug retained in plasma, fixed drug property (DERIVED)
-C0_inf = C0_levo / dose_ref * dose_sup # ng/mL, initial jump for this dose (DERIVED)
-L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
-C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
 # Parameters: Gut Transit (delay before metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
@@ -149,22 +145,9 @@ Emax_HR = 0.153                     # fraction, maximum HR increase from Levosim
 # Hill Kinetics: dilation of systemic and cerebral vessels
 Emax_R = 0.3675                     # fractional max R_sys and R_cereb drop (Parameterized)
 
-# Derivation for baseline systemic resistance
-# (how strong vessels oppose blood flow)
-# Baseline systemic resistance = pressure / flow
-CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output (DERIVED)
-R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance (DERIVED)
-
 ### Parameters: Brain Block (MAP, Ce_HR --> V_cereb)
 
 A_cereb = np.pi * (r_cereb) ** 2    # m^2, MCA cross-section
-
-# Derivation for baseline cerebral resistance
-# Baseline cerebral resistance = pressure / flow
-
-CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure (DERIVED)
-Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow (DERIVED)
-R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance (DERIVED)
 
 # Effect delay for SV
 keo_thalf = 13.85                   # hrs, compartment-effect time delay (Parameterized)
@@ -183,7 +166,7 @@ k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 # Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff)
 # Outputs MAP --> Brain
 #
-def heart_block(Ce_eff_v, Ce_HR_v):
+def heart_block(Ce_eff_v, Ce_HR_v, HR0, R_sys0):
     R_sys_v = R_sys0 * (1 - Emax_R * Ce_HR_v / (EC50 + Ce_HR_v))
     SV_v = SV0 * (1 + dSVmax * Ce_eff_v / (EC50 + Ce_eff_v))
     HR_v = HR0 * (1 + Emax_HR * Ce_HR_v / (EC50 + Ce_HR_v))
@@ -196,99 +179,143 @@ def heart_block(Ce_eff_v, Ce_HR_v):
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
 # Equations from [5].
-def cerebral_block(Ce_val, MAP_v):
+def cerebral_block(Ce_val, MAP_v, R_cereb0):
     Cerebral_R = R_cereb0 * (1 - Emax_R * Ce_val / (EC50 + Ce_val))
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
-######################### Initial Conditions ##################################
-CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
-Cdose_load = [None] * int(T // dt)      # ng/mL, loading dose part of the parent
-CGut       = [None] * int(T // dt)      # ng/mL, gut transit compartment
-C1855      = [None] * int(T // dt)      # ng/mL, OR-1855
-C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
-Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
-Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
-Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc (HR, vessels)
+############################ Model Simulation #################################
+# simulate() runs the model for one patient and one dosing regimen, so the same
+# model is used for every patient (patient values from Section 2, set in Section 3)
+#
+# patient: HR0 (Hz), MAP0 (Pa), v_cereb0 (m/s)
+# regimen: dose_load (ng/kg), dose_sup (ng/kg/min), dose_inf (hrs), dose_sch (days)
 
-R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
-SV         = [None] * int(T // dt)      # m^3, stroke volume
-HR         = [None] * int(T // dt)      # Hz, heart rate
-CO         = [None] * int(T // dt)      # m^3/s, cardiac output
-MAP        = [None] * int(T // dt)      # Pa, mean arterial pressure
-R_cereb    = [None] * int(T // dt)      # Pa.s/m^3, cerebral resistance
-V_cereb    = [None] * int(T // dt)      # m/s, cerebral blood velocity
+def simulate(patient, regimen):
+    HR0, MAP0, v_cereb0 = patient["HR0"], patient["MAP0"], patient["v_cereb0"]
+    dose_load, dose_sup = regimen["dose_load"], regimen["dose_sup"]
+    dose_inf, dose_sch = regimen["dose_inf"], regimen["dose_sch"]
 
-CLevo[0] = C0_inf + C_dose_load         # ng/mL, initial + loading dose
-Cdose_load[0] = C_dose_load             # ng/mL, just loading dose
-CGut[0]  = 0                            # ng/mL
-C1855[0] = 0                            # ng/mL
-C1896[0] = 0                            # ng/mL
-Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, free active drug
-Ce_eff[0] = 0                           # ng/mL
-Ce_HR[0] = 0                            # ng/mL
+    ### Patient baselines (DERIVED) ###
+    # Baseline systemic and cerebral resistance = pressure / flow
+    CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output
+    R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance
+    CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure
+    Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow
+    R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance
 
-# Patient baselines as initial conditions
-R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0])
-R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0])
+    ### Repeat dosing for scheduling ###
+    if repeat_dosing:
+        T_rep = dose_sch * 24           # hrs, interval between infusion starts
+        N_inf = int(np.ceil(T / T_rep)) # number of infusions
+    else:
+        T_rep = T                       # hrs, single dose
+        N_inf = 1                       # one infusion only
 
-############################# Main Loop #######################################
+    # Time steps where repeat infusion starts
+    start_steps = [int(round(k * T_rep / dt)) for k in range(1, N_inf)]
 
-for t in range(0, int(T // dt - 1)):
+    ### Dose conversions for main loop (DERIVED) ###
+    R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
+    C0_inf = C0_levo / dose_ref * dose_sup # ng/mL, initial jump for this dose
+    L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
+    C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
-    ### Levosimendan (ACTIVE) ###
+    ######################### Initial Conditions ##################################
+    CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
+    Cdose_load = [None] * int(T // dt)      # ng/mL, loading dose part of the parent
+    CGut       = [None] * int(T // dt)      # ng/mL, gut transit compartment
+    C1855      = [None] * int(T // dt)      # ng/mL, OR-1855
+    C1896      = [None] * int(T // dt)      # ng/mL, OR-1896
+    Ce         = [None] * int(T // dt)      # ng/mL, free active drug in plasma
+    Ce_eff     = [None] * int(T // dt)      # ng/mL, effect-site concentration (lagged Ce)
+    Ce_HR      = [None] * int(T // dt)      # ng/mL, fast effect-site conc (HR, vessels)
 
-    # Loading dose: first-order decay from t = 0
-    dCdose_load = -k0 * Cdose_load[t]
-    Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
+    R_sys      = [None] * int(T // dt)      # Pa.s/m^3, systemic resistance
+    SV         = [None] * int(T // dt)      # m^3, stroke volume
+    HR         = [None] * int(T // dt)      # Hz, heart rate
+    CO         = [None] * int(T // dt)      # m^3/s, cardiac output
+    MAP        = [None] * int(T // dt)      # Pa, mean arterial pressure
+    R_cereb    = [None] * int(T // dt)      # Pa.s/m^3, cerebral resistance
+    V_cereb    = [None] * int(T // dt)      # m/s, cerebral blood velocity
+
+    CLevo[0] = C0_inf + C_dose_load         # ng/mL, initial + loading dose
+    Cdose_load[0] = C_dose_load             # ng/mL, just loading dose
+    CGut[0]  = 0                            # ng/mL
+    C1855[0] = 0                            # ng/mL
+    C1896[0] = 0                            # ng/mL
+    Ce[0] = f0 * CLevo[0] + f2 * C1896[0]   # ng/mL, free active drug
+    Ce_eff[0] = 0                           # ng/mL
+    Ce_HR[0] = 0                            # ng/mL
+
+    # Patient baselines as initial conditions
+    R_sys[0], SV[0], HR[0], CO[0], MAP[0] = heart_block(Ce_eff[0], Ce_HR[0], HR0, R_sys0)
+    R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0], R_cereb0)
+
+    ############################# Main Loop #######################################
+
+    for t in range(0, int(T // dt - 1)):
+
+        ### Levosimendan (ACTIVE) ###
+
+        # Loading dose: first-order decay from t = 0
+        dCdose_load = -k0 * Cdose_load[t]
+        Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
     
-    # Infusing if within dose_inf hrs of the current infusion start
-    t_cycle = (t * dt) % T_rep       
-    if t_cycle < dose_inf and t * dt < N_inf * T_rep:
-        dCLevo = R_inf - L_inf + dCdose_load
-        Form = m1 * Vm_ratio * (L_inf + k0 * Cdose_load[t])
+        # Infusing if within dose_inf hrs of the current infusion start
+        t_cycle = (t * dt) % T_rep       
+        if t_cycle < dose_inf and t * dt < N_inf * T_rep:
+            dCLevo = R_inf - L_inf + dCdose_load
+            Form = m1 * Vm_ratio * (L_inf + k0 * Cdose_load[t])
         
-    # Else, first order decay
-    else:
-        dCLevo = -k0 * CLevo[t]
-        Form = m1 * Vm_ratio * k0 * CLevo[t]
-    CLevo[t + 1] = CLevo[t] + dCLevo
+        # Else, first order decay
+        else:
+            dCLevo = -k0 * CLevo[t]
+            Form = m1 * Vm_ratio * k0 * CLevo[t]
+        CLevo[t + 1] = CLevo[t] + dCLevo
 
-    # Each repeat infusion starts with the same jump as t = 0
-    if (t + 1) in start_steps:
-        CLevo[t + 1] += C0_inf
+        # Each repeat infusion starts with the same jump as t = 0
+        if (t + 1) in start_steps:
+            CLevo[t + 1] += C0_inf
 
-    ### Gut Transit Compartment ###
-    if t * dt < T_gut:
-        Rel = 0
-    else:
-        Rel = kg * CGut[t]
+        ### Gut Transit Compartment ###
+        if t * dt < T_gut:
+            Rel = 0
+        else:
+            Rel = kg * CGut[t]
 
-    dCGut = Form - Rel
-    CGut[t + 1] = CGut[t] + dCGut
+        dCGut = Form - Rel
+        CGut[t + 1] = CGut[t] + dCGut
 
-    ### OR-1855 (INACTIVE Metabolite) ###
-    # Formed by gut metabolism, lost from acetylation (1896) 
-    dC1855 = Rel - kac * C1855[t]
-    C1855[t + 1] = C1855[t] + dC1855
+        ### OR-1855 (INACTIVE Metabolite) ###
+        # Formed by gut metabolism, lost from acetylation (1896) 
+        dC1855 = Rel - kac * C1855[t]
+        C1855[t + 1] = C1855[t] + dC1855
 
-    ### OR-1896 (ACTIVE Metabolite) ###
-    # Formed by acetylation, lost to self decay
-    dC1896 = kac * C1855[t] - k2 * C1896[t]
-    C1896[t + 1] = C1896[t] + dC1896
+        ### OR-1896 (ACTIVE Metabolite) ###
+        # Formed by acetylation, lost to self decay
+        dC1896 = kac * C1855[t] - k2 * C1896[t]
+        C1896[t + 1] = C1896[t] + dC1896
 
-    ### Active Drug Concentration (PK Output)
-    Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
+        ### Active Drug Concentration (PK Output)
+        Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-    ### Effect Compartment (delay between plasma and tissue) ###
-    Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
-    Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
+        ### Effect Compartment (delay between plasma and tissue) ###
+        Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
+        Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
-    ### Heart PD (Mass Transfer System) ###
-    R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1])
+        ### Heart PD (Mass Transfer System) ###
+        R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], HR0, R_sys0)
 
-    ### Cerebral Vasculature PD (Mass Transfer System) ###
-    R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1])
+        ### Cerebral Vasculature PD (Mass Transfer System) ###
+        R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], R_cereb0)
+
+    time = (np.arange(0, int(T // dt)) * dt) / 24   # days
+    return dict(time=time, CLevo=np.array(CLevo), CGut=np.array(CGut),
+                C1855=np.array(C1855), C1896=np.array(C1896), Ce=np.array(Ce),
+                Ce_eff=np.array(Ce_eff), Ce_HR=np.array(Ce_HR), R_sys=np.array(R_sys),
+                SV=np.array(SV), HR=np.array(HR), CO=np.array(CO), MAP=np.array(MAP),
+                R_cereb=np.array(R_cereb), V_cereb=np.array(V_cereb))
 
 ###############################################################################
 ###################### Section 2: Unpacking EPHYS Data ########################
@@ -331,10 +358,9 @@ Age_pt = {"S0175 (Hypertension, Stroke)": 64,         # years
 
 channels = ["cerebral_blood_velocity_right",    # cm/s, RMCA velocity
             "cerebral_blood_velocity_left",     # cm/s, LMCA velocity
-            "brachial_blood_velocity",          # cm/s, brachial velocity
             "abp"]                              # mmHg, blood pressure
 labels = ["RMCA_Velocity (cm/s)", "LMCA_Velocity (cm/s)",
-          "Brachial_Velocity (cm/s)", "Blood_Pressure (mmHg)"]
+          "Blood_Pressure (mmHg)"]
 
 def unpack(Pt):
     Fs = Pt.fs                              # Hz, sampling rate
@@ -348,16 +374,17 @@ EPHYS = {name: unpack(Pt) for name, Pt in patients.items()}
 ############################## Plot Raw Data ##################################
 timeseq = [30, 35]                          # s, arbitrary 5 s window (from [19])
 
-for name, (Fs, dT, time_vector, signals) in EPHYS.items():
-    i0, i1 = timeseq[0] * Fs, timeseq[1] * Fs
-    plt.figure()
-    for ch, lab in zip(channels, labels):
-        plt.plot(time_vector[i0:i1], signals[ch][i0:i1], label=lab)
-    plt.xlabel("Time (s)")
-    plt.ylabel("Raw Signal")
-    plt.title(f"Raw EPHYS Data: {name}")
-    plt.legend()
-    plt.show()
+if show_EPHYS_plots:
+    for name, (Fs, dT, time_vector, signals) in EPHYS.items():
+        i0, i1 = timeseq[0] * Fs, timeseq[1] * Fs
+        plt.figure()
+        for ch, lab in zip(channels, labels):
+            plt.plot(time_vector[i0:i1], signals[ch][i0:i1], label=lab)
+        plt.xlabel("Time (s)")
+        plt.ylabel("Raw Signal")
+        plt.title(f"Raw EPHYS Data: {name}")
+        plt.legend()
+        plt.show()
 
 
 ########################### Processing EPHYS Data #############################
@@ -517,38 +544,207 @@ target = {group: Pt_values[healthy] for group, (stroke, healthy) in pairs.items(
 
 t_show = 10                         # s, window shown from start of rest
 
-for name, P in Pt_values.items():
-    n = int(t_show * EPHYS[name][0])
-    s = P["systole_ind"][P["systole_ind"] < n]
-    d = P["diastole_ind"][P["diastole_ind"] < n]
-    t = P["t"][:n] - P["t"][0]
-    fig, ax = plt.subplots(2, 1, sharex=True)
-    ax[0].plot(t, P["BP"][:n], label="Blood Pressure")
-    ax[0].plot(t[s], P["BP"][s], "x", label="Systole (peaks)")
-    ax[0].plot(t[d], P["BP"][d], "rx", label="Diastole (troughs)")
-    ax[0].axhline(P["MAP"], color="grey", linestyle="--", label=f"MAP = {P['MAP']:.1f} mmHg")
-    ax[0].set_ylabel("Pressure (mmHg)")
-    ax[0].legend(loc="upper right", fontsize=8)
-    for ch, v in P["v_masked"].items():
-        ax[1].plot(t, v[:n], label=("LMCA" if ch == LMCA else "RMCA") + " (filtered, dropouts masked)")
-    ax[1].axhline(P["v_MCA"], color="grey", linestyle="--", label=f"Mean = {P['v_MCA']:.1f} cm/s")
-    ax[1].set_ylabel("MCA Velocity (cm/s)")
-    ax[1].set_xlabel("Time from start of rest (s)")
-    ax[1].legend(loc="upper right", fontsize=8)
-    fig.suptitle(f"Processed EPHYS Data: {name}")
-    plt.show()
+if show_EPHYS_plots:
+    for name, P in Pt_values.items():
+        n = int(t_show * EPHYS[name][0])
+        s = P["systole_ind"][P["systole_ind"] < n]
+        d = P["diastole_ind"][P["diastole_ind"] < n]
+        t = P["t"][:n] - P["t"][0]
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        ax[0].plot(t, P["BP"][:n], label="Blood Pressure")
+        ax[0].plot(t[s], P["BP"][s], "x", label="Systole (peaks)")
+        ax[0].plot(t[d], P["BP"][d], "rx", label="Diastole (troughs)")
+        ax[0].axhline(P["MAP"], color="grey", linestyle="--", label=f"MAP = {P['MAP']:.1f} mmHg")
+        ax[0].set_ylabel("Pressure (mmHg)")
+        ax[0].legend(loc="upper right", fontsize=8)
+        for ch, v in P["v_masked"].items():
+            ax[1].plot(t, v[:n], label=("LMCA" if ch == LMCA else "RMCA") + " (filtered, dropouts masked)")
+        ax[1].axhline(P["v_MCA"], color="grey", linestyle="--", label=f"Mean = {P['v_MCA']:.1f} cm/s")
+        ax[1].set_ylabel("MCA Velocity (cm/s)")
+        ax[1].set_xlabel("Time from start of rest (s)")
+        ax[1].legend(loc="upper right", fontsize=8)
+        fig.suptitle(f"Processed EPHYS Data: {name}")
+        plt.show()
 
 
 ###############################################################################
 ###################### Section 3: Curing the Patients #########################
 ###############################################################################
 
+########################## Patient Values into Model ##########################
+# Stroke patient baselines from Section 2, converted to model (SI) units
 
-# NOTES: At least 2 dosing regimens
-# Cure at least 4 patients
+def patient_inputs(P):
+    return dict(HR0=P["HR"] / 60,                   # Hz, from bpm
+                MAP0=P["MAP"] * MMHG_TO_PA,         # Pa, from mmHg
+                v_cereb0=P["v_MCA"] / 100)          # m/s, from cm/s
+
+patient_in = {group: patient_inputs(P) for group, P in baseline.items()}
+
+########################### Treatment Regimens ###############################
+# Same per-kg regimen for every patient (similar age and weight), so only the
+# patient baselines differ. Each infusion repeats every dose_sch days (Section 1)
 #
-# Hypertension: Stroke vs No Stroke
-# Normal tension: Stroke vs No Stroke
+# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1] (Section 1 default)
+# Table 3: 12 ug/kg loading dose, then 200 ng/kg/min for 24 hrs [3]
+
+regimens = {"Table 1": regimen_default,
+            "Table 3": dict(dose_load=12 * 1000,      # ng/kg, 12 ug/kg loading dose [3]
+                            dose_sup=200,              # ng/kg/min, infusion rate [3]
+                            dose_inf=24,               # hrs, infusion duration [3]
+                            dose_sch=dose_sch)}        # days, repeat interval (Section 1)
+
+def regimen_text(reg):
+    # Short regimen description for plot titles (ug/kg/min, ug/kg)
+    load = f"{reg['dose_load'] / 1000:g} µg/kg load + " if reg["dose_load"] else "no load, "
+    return (f"{load}{reg['dose_sup'] / 1000:g} µg/kg/min x {reg['dose_inf']:g} hrs, "
+            f"every {reg['dose_sch']:g} days")
+
+# Model run for each regimen and stroke patient: results[regimen][group]
+results = {name: {group: simulate(patient_in[group], reg) for group in patient_in}
+           for name, reg in regimens.items()}
+
+# Reference runs with no drug: stroke patient (untreated) and healthy patient (target)
+regimen_none = dict(dose_load=0, dose_sup=0, dose_inf=dose_inf, dose_sch=dose_sch)
+untreated = {group: simulate(patient_in[group], regimen_none) for group in patient_in}
+healthy_in = {group: patient_inputs(P) for group, P in target.items()}
+healthy_run = {group: simulate(healthy_in[group], regimen_none) for group in healthy_in}
+
+############################### Safety Limits #################################
+# Same limits for every patient (closest match to our stroke population)
+#
+# HR: rise limit over the first 24 hrs, stopping rule in prior stroke/TIA patients [2]
+# MAP: floor from the DBP >= 60 mmHg warning, using MAP = DBP + PP/3 [21]
+# Loading dose: only if baseline SBP >= 90 mmHg [22]
+# v_MCA: absolute peak (vasospasm range) [23] and rate of rise [24]
+# Dose: infusion rate range [16], [21]
+
+dHR_lim = 15                        # bpm, max HR rise from baseline in the first 24 hrs [2]
+DBP_lim = 60                        # mmHg, DBP floor, MAP floor = DBP_lim + PP0/3 [21]
+SBP_load = 90                       # mmHg, min baseline SBP for a loading dose [22]
+v_lim = 120                         # cm/s, absolute MCA velocity peak [23]
+dv_lim = 50                         # cm/s, max MCA velocity rise within 24 hrs [24]
+dose_min, dose_max = 50, 200        # ng/kg/min, infusion rate range (0.05-0.2 ug/kg/min) [16], [21]
+
+def rise_24h(x):
+    # Largest rise within any 24 hr window (each hour vs the max over the next 24 hrs)
+    n24 = int(24 / dt)
+    return max(x[i:i + n24].max() - x[i] for i in range(0, len(x) - n24, int(1 / dt)))
+
+def safety(R, P, regimen):
+    # Model outputs in clinical units, checked against each limit (True = pass)
+    HR = R["HR"] * 60                   # bpm
+    MAP = R["MAP"] / MMHG_TO_PA         # mmHg
+    v = R["V_cereb"] * 100              # cm/s
+    MAP_floor = DBP_lim + P["PP"] / 3   # mmHg, patient-specific floor
+    n24 = int(24 / dt)                  # steps in the first 24 hrs
+    dHR = HR[:n24].max() - HR[0]        # bpm, HR rise in the first 24 hrs
+    checks = {"HR rise": dHR <= dHR_lim,
+              "MAP floor": MAP.min() >= MAP_floor,
+              "Loading dose": regimen["dose_load"] == 0 or P["SBP"] >= SBP_load,
+              "v peak": v.max() <= v_lim,
+              "v rise": rise_24h(v) <= dv_lim,
+              "Dose rate": dose_min <= regimen["dose_sup"] <= dose_max}
+    values = dict(HR_max=HR.max(), dHR=dHR, MAP_min=MAP.min(),
+                  MAP_floor=MAP_floor, v_peak=v.max(), dv24=rise_24h(v))
+    return checks, values
+
+safe = {name: {group: safety(results[name][group], baseline[group], regimens[name])
+               for group in patient_in} for name in regimens}
+
+## Safety table, same layout as the Section 2 table
+cols = ["HR max (bpm)", "HR rise 24h (bpm)", "MAP min (mmHg)", "MAP floor (mmHg)",
+        "v peak (cm/s)", "v rise 24h (cm/s)", "Limits"]
+row_names = {(name, group): f"{name}, {group}" for name in safe for group in safe[name]}
+w_grp = max(len(r) for r in row_names.values()) + 1   # regimen/group column width
+w_col = [len(c) + 2 for c in cols]
+
+header = f"{'Regimen, Patient Group':{w_grp}}|" + "".join(f"{c:^{n}}" for c, n in zip(cols, w_col))
+width = len(header)
+
+print("=" * width)
+print(f"{'Treatment Safety Check':^{width}}")
+print("=" * width)
+print(header)
+print("-" * width)
+for name in safe:
+    for group, (checks, val) in safe[name].items():
+        failed = [k for k, ok in checks.items() if not ok]
+        row = [f"{val['HR_max']:.1f}", f"{val['dHR']:.1f}", f"{val['MAP_min']:.1f}",
+               f"{val['MAP_floor']:.1f}", f"{val['v_peak']:.1f}", f"{val['dv24']:.1f}",
+               "PASS" if not failed else "FAIL"]
+        print(f"{row_names[(name, group)]:{w_grp}}|" + "".join(f"{v:^{n}}" for v, n in zip(row, w_col)))
+        if failed:
+            print(f"{'':{w_grp}}|  Failed: " + ", ".join(failed))
+    print("-" * width)
+print("Limits: HR <= +15 bpm in first 24 hrs [2], MAP >= 60 + PP0/3 [21], "
+      "v <= 120 cm/s and <= +50 cm/s in 24 hrs [23], [24]")
+
+########################### Plot Treatment Results ############################
+# One figure per regimen and patient group: effective drug, HR, MAP, MCA velocity
+# Treated stroke patient (green), untreated stroke patient (purple),
+# healthy patient (blue), limits (red dotted)
+
+for name, reg in regimens.items():
+    for group, R in results[name].items():
+        P = baseline[group]
+        stroke, healthy = pairs[group]
+        stroke_id, healthy_id = stroke.split()[0], healthy.split()[0]
+        t_d = R["time"]                     # days
+        HR = R["HR"] * 60                   # bpm
+        MAP = R["MAP"] / MMHG_TO_PA         # mmHg
+        v = R["V_cereb"] * 100              # cm/s
+
+        # Treated run first, then the reference runs (no drug), same units
+        runs = [(R, "green", f"{stroke_id} treated"),
+                (untreated[group], "purple", f"{stroke_id} untreated (stroke)"),
+                (healthy_run[group], "blue", f"{healthy_id} (healthy)")]
+
+        fig, ax = plt.subplots(2, 2, sharex=True, figsize=(12, 8))
+
+        # Effective drug: Levosimendan (parent) and OR-1896 (active metabolite)
+        ax[0, 0].plot(t_d, R["CLevo"], label="Levosimendan")
+        ax[0, 0].plot(t_d, R["C1896"], label="OR-1896")
+        ax[0, 0].set_ylabel("Plasma Concentration (ng/mL)")
+        ax[0, 0].set_title("Effective Drug")
+        ax[0, 0].legend(loc="upper right", fontsize=8)
+
+        # Heart rate with rise limit [2]
+        for X, c, lab in runs:
+            ax[0, 1].plot(t_d, X["HR"] * 60, color=c, label=lab)
+        ax[0, 1].axhline(HR[0] + dHR_lim, color="red", linestyle=":",
+                         label=f"Rise limit, first 24 hrs (baseline + {dHR_lim} bpm)")
+        ax[0, 1].set_ylabel("Heart Rate (bpm)")
+        ax[0, 1].set_title("Heart Rate")
+        ax[0, 1].legend(loc="best", fontsize=8)
+
+        # MAP with patient-specific floor [21]
+        MAP_floor = DBP_lim + P["PP"] / 3
+        for X, c, lab in runs:
+            ax[1, 0].plot(t_d, X["MAP"] / MMHG_TO_PA, color=c, label=lab)
+        ax[1, 0].axhline(MAP_floor, color="red", linestyle=":",
+                         label=f"MAP floor ({MAP_floor:.1f} mmHg)")
+        ax[1, 0].set_ylabel("MAP (mmHg)")
+        ax[1, 0].set_xlabel("Time (days)")
+        ax[1, 0].set_title("Mean Arterial Pressure")
+        ax[1, 0].legend(loc="best", fontsize=8)
+
+        # MCA velocity with absolute and rate of rise limits [23], [24]
+        v_rate = np.minimum(v[0] + dv_lim * t_d, v_lim)   # max rise of 50 cm/s per day from baseline
+        for X, c, lab in runs:
+            ax[1, 1].plot(t_d, X["V_cereb"] * 100, color=c, label=lab)
+        ax[1, 1].axhline(v_lim, color="red", linestyle=":", label=f"Absolute limit ({v_lim} cm/s)")
+        ax[1, 1].plot(t_d, v_rate, color="red", linestyle=":", alpha=0.5,
+                      label=f"Rate of rise limit ({dv_lim} cm/s per 24 hrs)")
+        ax[1, 1].set_ylabel("MCA Velocity (cm/s)")
+        ax[1, 1].set_xlabel("Time (days)")
+        ax[1, 1].set_title("Cerebral Blood Velocity")
+        ax[1, 1].legend(loc="center right", fontsize=8)
+
+        fig.suptitle(f"{name} Regimen ({regimen_text(reg)}): {group}, "
+                     f"{stroke_id} (Stroke) vs {healthy_id} (Target)")
+        fig.tight_layout()
+        plt.show()
 
 ############################## References #####################################
 # Declaration of AI use
@@ -583,3 +779,7 @@ for name, P in Pt_values.items():
 # [18] {Lilleberg, 2007}
 # [19] {Mann, 2026}
 # [20] {Novak, 2010}
+# [21] {Orion Pharma, 2025} Simdax data sheet
+# [22] {SESLHD, 2024} Levosimendan medicine guideline
+# [23] {Lindegaard, 1989}
+# [24] {Grosset, 1992}
