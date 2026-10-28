@@ -35,14 +35,14 @@ run_sensitivity = True             # BOOLEAN, CHANGE WHEN NEEDED
 ############################# Table 1 Input Data ##############################
 # Levosimendan, OR-1855 and OR-1896
 
-## Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
-## hrs, no loading bolus. From [1].
+# Dosing regimen: 0.1 ug/kg/min (100 ng/kg/min) constant IV infusion for 24
+# hrs, no loading bolus. From [1].
 
 T1_dose = 100                       # ng/kg/min, dosing infusion rate
 T1_T_inf = 24                       # hrs, infusion duration
 T1_load = 0                         # ug/kg, no loading bolus. From [1]
 
-## Patient specific parameters
+# Patient specific parameters
 T1_BW = 80                          # kg, sample body weight
 # (space for Table 1 cohort demographics)
 
@@ -61,21 +61,21 @@ T3_load  = 12                       # ug/kg, loading dose at t = 0 (instant bolu
 T3_dose  = 200                      # ng/kg/min, maintenance infusion rate
 T3_T_inf = 24                       # hrs, maintenance infusion duration
 
-## Patient specific parameters
+# Patient specific parameters
 T3_HR0  = 83                        # bpm, baseline HR, t = 0 row of [3]
 T3_MAP0 = 84                        # mmHg, baseline MAP, t = 0 row of [3]
 # T3_BW  =                          # kg, cohort body weight (TBA from [3] demographics)
 
-## Clinical data
-## TABLE 3 Heart Rate and MAP
+# Clinical data
+# TABLE 3 Heart Rate and MAP
 T3_time = [0, 6, 12, 18, 24, 36, 48]              # hrs, time column
 T3_HR   = [83, 95, 95.5, 96, 96, 94, 92]             # bpm, heart rate column
 T3_MAP  = [84, 72, 75.5, 75, 76, 77, 78]             # mmHg, MAP column
 
 
 ############################### Time Course ###################################
-## Time course: set in days, runs in hrs
-## Single dose only: Tables 1 and 3 each report one dosing course
+# Time course: set in days, runs in hrs
+# Single dose only: Tables 1 and 3 each report one dosing course
 
 T_days = 12                         # days, time course (covers the 240 hr Table 1 data)
 
@@ -204,7 +204,7 @@ params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
            Emax_R, EC50, dSVmax, Emax_HR,
            k_HR, keo_HR_thalf]
 
-### Heart (Mass Transfer System) ###
+# Heart (Mass Transfer System) 
 #
 # Takes effect-site drugs and runs three Hill Kinetic responses:
 # Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff)
@@ -220,7 +220,7 @@ def heart_block(Ce_eff_v, Ce_HR_v, P_HB):
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
-### Cerebral Vasculature (Mass Transfer System) ###
+# Cerebral Vasculature (Mass Transfer System)
 #
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
@@ -242,26 +242,26 @@ def cerebral_block(Ce_val, MAP_v, Emax_v, EC50_v):
 #
 def simulate(params, regimen):
 
-    ### Unpack parameters and regimen ###
+    # Unpack parameters and regimen
     gut_rate, Vm_ratio, ac_rate, m2_half, f0, keo_thalf = params[0:6]
     P_HB = params[6:10]                 # heart block PD parameters
     k_HR, keo_HR_thalf = params[10:12]  # fast effect site (HR and vessels)
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
-    ### Rate constants (pre-multiplied by dt) ###
+    # Rate constants (pre-multiplied by dt)
     kg = (np.log(2) / gut_rate) * dt        # 1/hrs, gut release rate as half life (DERIVED)
     kac = (np.log(2) / ac_rate) * dt        # 1/hrs, acetylation as half life (DERIVED)
     k2 = (np.log(2) / m2_half) * dt         # 1/hrs, OR-1896 half-life decay (DERIVED)
     k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, pre-multiplied by dt
     k_eo_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, pre-multiplied by dt
 
-    ### Dose conversions for main loop ###
+    # Dose conversions for main loop
     R_inf = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
     C0_inf = C0_per_dose * dose_sup         # ng/mL, initial jump for this dose
     L_inf = (1 - phi) * R_inf               # ng/mL per step, loss during infusion
     C_dose_load = dose_load / V_kg          # ng/mL, loading dose jump at t = 0
 
-    ### Initial Conditions ###
+    # Initial Conditions
     CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
     Cdose_load = [None] * int(T // dt)      # ng/mL, loading dose part of the parent
     CGut       = [None] * int(T // dt)      # ng/mL, gut transit compartment
@@ -296,7 +296,7 @@ def simulate(params, regimen):
 
     for t in range(0, int(T // dt - 1)):
 
-        ### Levosimendan (ACTIVE) ###
+        # Levosimendan (ACTIVE)
 
         # Loading dose: first-order decay from t = 0
         dCdose_load = -k0 * Cdose_load[t]
@@ -322,27 +322,27 @@ def simulate(params, regimen):
         dCGut = Form - Rel
         CGut[t + 1] = CGut[t] + dCGut
 
-        ### OR-1855 (INACTIVE Metabolite) ###
+        # OR-1855 (INACTIVE Metabolite)
         # Formed by gut metabolism, lost from acetylation (1896) 
         dC1855 = Rel - kac * C1855[t]
         C1855[t + 1] = C1855[t] + dC1855
 
-        ### OR-1896 (ACTIVE Metabolite) ###
+        # OR-1896 (ACTIVE Metabolite)
         # Formed by acetylation, lost to self decay
         dC1896 = kac * C1855[t] - k2 * C1896[t]
         C1896[t + 1] = C1896[t] + dC1896
 
-        ### Active Drug Concentration (PK Output)
+        # Active Drug Concentration (PK Output)
         Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-        ### Effect Compartment (delay between plasma and tissue) ###
+        # Effect Compartment (delay between plasma and tissue)
         Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
         Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
-        ### Heart PD (Mass Transfer System) ###
+        # Heart PD (Mass Transfer System)
         R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], P_HB)
 
-        ### Cerebral Vasculature PD (Mass Transfer System) ###
+        # Cerebral Vasculature PD (Mass Transfer System)
         R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], P_HB[0], P_HB[1])
 
     return (CLevo, CGut, C1855, C1896, Ce, Ce_eff,
@@ -351,11 +351,11 @@ def simulate(params, regimen):
 ############################ Initial Model Runs ###############################
 # Code 1 initial values, run with each table's dosing regimen
 
-## Table 1 regimen [1]
+# Table 1 regimen [1]
 (CLevo, CGut, C1855, C1896, Ce, Ce_eff,
  R_sys, SV, HR, CO, MAP, R_cereb, V_cereb) = simulate(params0, T1_regimen)
 
-## Table 3 regimen [3]
+# Table 3 regimen [3]
 (CLevo_T3, CGut_T3, C1855_T3, C1896_T3, Ce_T3, Ce_eff_T3,
  R_sys_T3, SV_T3, HR_T3, CO_T3, MAP_T3, R_cereb_T3, V_cereb_T3) = simulate(params0, T3_regimen)
 

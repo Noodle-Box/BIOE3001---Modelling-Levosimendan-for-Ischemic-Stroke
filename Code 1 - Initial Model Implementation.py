@@ -18,7 +18,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 ####################### Dose Scheduling and Time Steps ########################
-## Time course: set in days, runs in hrs
+# Time course: set in days, runs in hrs
 
 ### Run Mode Toggle ###
 # TRUE = scheduling on, dosing schedule to maintain homeostasis levels
@@ -136,8 +136,7 @@ Emax_R = 0.4                        # fractional max R_sys and R_cereb drop. (Fi
 CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output (DERIVED)
 R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance (DERIVED)
 
-### Parameters: Brain Block (MAP, Ce_HR --> V_cereb)
-
+# Parameters: Brain Block (MAP, Ce_HR --> V_cereb)
 A_cereb = np.pi * (r_cereb) ** 2    # m^2, MCA cross-section
 
 # Derivation for baseline cerebral resistance
@@ -158,7 +157,7 @@ k_HR = 6                            # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
 k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
-### Heart (Mass Transfer System) ###
+# Heart (Mass Transfer System)
 #
 # Takes effect-site drugs and runs three Hill Kinetic responses:
 # Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff)
@@ -172,7 +171,7 @@ def heart_block(Ce_eff_v, Ce_HR_v):
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
-### Cerebral Vasculature (Mass Transfer System) ###
+# Cerebral Vasculature (Mass Transfer System)
 #
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
@@ -217,8 +216,7 @@ R_cereb[0], V_cereb[0] = cerebral_block(Ce_HR[0], MAP[0])
 
 for t in range(0, int(T // dt - 1)):
 
-    ### Levosimendan (ACTIVE) ###
-
+    #Levosimendan (ACTIVE) 
     # Loading dose: first-order decay from t = 0
     dCdose_load = -k0 * Cdose_load[t]
     Cdose_load[t + 1] = Cdose_load[t] + dCdose_load
@@ -248,27 +246,27 @@ for t in range(0, int(T // dt - 1)):
     dCGut = Form - Rel
     CGut[t + 1] = CGut[t] + dCGut
 
-    ### OR-1855 (INACTIVE Metabolite) ###
+    # OR-1855 (INACTIVE Metabolite)
     # Formed by gut metabolism, lost from acetylation (1896) 
     dC1855 = Rel - kac * C1855[t]
     C1855[t + 1] = C1855[t] + dC1855
 
-    ### OR-1896 (ACTIVE Metabolite) ###
+    # OR-1896 (ACTIVE Metabolite) 
     # Formed by acetylation, lost to self decay
     dC1896 = kac * C1855[t] - k2 * C1896[t]
     C1896[t + 1] = C1896[t] + dC1896
 
-    ### Active Drug Concentration (PK Output)
+    # Active Drug Concentration (PK Output)
     Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-    ### Effect Compartment (delay between plasma and tissue) ###
+    # Effect Compartment (delay between plasma and tissue)
     Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
     Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
-    ### Heart PD (Mass Transfer System) ###
+    # Heart PD (Mass Transfer System)
     R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1])
 
-    ### Cerebral Vasculature PD (Mass Transfer System) ###
+    # Cerebral Vasculature PD (Mass Transfer System)
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1])
 
 ############################## Plot Figure ####################################

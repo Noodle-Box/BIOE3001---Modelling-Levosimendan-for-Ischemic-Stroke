@@ -35,7 +35,7 @@ data_dir = Path(r"C:\BIOE3001 - FINAL\Project Resources\Patient Data (16_10)")
 ####################### Dose Scheduling and Time Steps ########################
 ## Time course: set in days, runs in hrs
 
-### Run Mode Toggle ###
+# Run Mode Toggle
 # TRUE = scheduling on, dosing schedule to maintain homeostasis levels
 # FALSE = scheduling off, 1 dose for shape and quantity analysis
 
@@ -46,11 +46,11 @@ if repeat_dosing:
 else:
     T_days = 12                     # days, time course
 
-### Plot Toggle ###
+# Plot Toggle
 # TRUE = also show the raw and processed EPHYS data plots (Section 2)
 # FALSE = treatment plots only (Section 3)
 
-show_EPHYS_plots = True            # BOOLEAN, CHANGE WHEN NEEDED
+show_EPHYS_plots = True             # BOOLEAN, CHANGE WHEN NEEDED
 
 dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
@@ -160,7 +160,7 @@ k_HR = 6                            # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
 k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
-### Heart (Mass Transfer System) ###
+# Heart (Mass Transfer System)
 #
 # Takes effect-site drugs and runs three Hill Kinetic responses:
 # Systemic resistance, stroke volume and heart rate (R_sys and HR use Ce_HR, SV uses Ce_eff)
@@ -174,7 +174,7 @@ def heart_block(Ce_eff_v, Ce_HR_v, HR0, R_sys0):
     MAP_v = CO_v * R_sys_v
     return R_sys_v, SV_v, HR_v, CO_v, MAP_v
 
-### Cerebral Vasculature (Mass Transfer System) ###
+# Cerebral Vasculature (Mass Transfer System)
 #
 # Takes the fast effect-site drug (Ce_HR) and MAP (from the heart block)
 # Combined lumped resistance and MAP to solve for blood velocity
@@ -184,9 +184,7 @@ def cerebral_block(Ce_val, MAP_v, R_cereb0):
     Blood_V = (MAP_v - P_brain) / (Cerebral_R * A_cereb)
     return Cerebral_R, Blood_V
 
-############################ Model Simulation #################################
-# simulate() runs the model for one patient and one dosing regimen, so the same
-# model is used for every patient (patient values from Section 2, set in Section 3)
+# This function runs the model for one patient and one dosing regimen
 #
 # patient: HR0 (Hz), MAP0 (Pa), v_cereb0 (m/s)
 # regimen: dose_load (ng/kg), dose_sup (ng/kg/min), dose_inf (hrs), dose_sch (days)
@@ -196,15 +194,14 @@ def simulate(patient, regimen):
     dose_load, dose_sup = regimen["dose_load"], regimen["dose_sup"]
     dose_inf, dose_sch = regimen["dose_inf"], regimen["dose_sch"]
 
-    ### Patient baselines (DERIVED) ###
-    # Baseline systemic and cerebral resistance = pressure / flow
+    # Patient baselines 
     CO0 = SV0 * HR0                     # m^3/s, baseline cardiac output
     R_sys0 = MAP0 / CO0                 # Pa.s/m^3, baseline systemic resistance
     CPP0 = MAP0 - P_brain               # Pa, baseline cerebral perfusion pressure
     Q_cereb0 = v_cereb0 * A_cereb       # m^3/s, baseline cerebral flow
     R_cereb0 = CPP0 / Q_cereb0          # Pa.s/m^3, baseline cerebral resistance
 
-    ### Repeat dosing for scheduling ###
+    # Repeat dosing for scheduling 
     if repeat_dosing:
         T_rep = dose_sch * 24           # hrs, interval between infusion starts
         N_inf = int(np.ceil(T / T_rep)) # number of infusions
@@ -215,11 +212,11 @@ def simulate(patient, regimen):
     # Time steps where repeat infusion starts
     start_steps = [int(round(k * T_rep / dt)) for k in range(1, N_inf)]
 
-    ### Dose conversions for main loop (DERIVED) ###
-    R_inf = (dose_sup * 60 / V_kg) * dt # ng/mL per step, infusion input
+    # Dose conversions for main loop
+    R_inf = (dose_sup * 60 / V_kg) * dt    # ng/mL per step, infusion input
     C0_inf = C0_levo / dose_ref * dose_sup # ng/mL, initial jump for this dose
-    L_inf = (1 - phi) * R_inf           # ng/mL per step, loss during infusion
-    C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
+    L_inf = (1 - phi) * R_inf              # ng/mL per step, loss during infusion
+    C_dose_load = dose_load / V_kg         # ng/mL, loading dose jump at t = 0
 
     ######################### Initial Conditions ##################################
     CLevo      = [None] * int(T // dt)      # ng/mL, Levosimendan (parent)
@@ -256,7 +253,7 @@ def simulate(patient, regimen):
 
     for t in range(0, int(T // dt - 1)):
 
-        ### Levosimendan (ACTIVE) ###
+        # Levosimendan (ACTIVE)
 
         # Loading dose: first-order decay from t = 0
         dCdose_load = -k0 * Cdose_load[t]
@@ -278,7 +275,7 @@ def simulate(patient, regimen):
         if (t + 1) in start_steps:
             CLevo[t + 1] += C0_inf
 
-        ### Gut Transit Compartment ###
+        # Gut Transit Compartment
         if t * dt < T_gut:
             Rel = 0
         else:
@@ -287,35 +284,33 @@ def simulate(patient, regimen):
         dCGut = Form - Rel
         CGut[t + 1] = CGut[t] + dCGut
 
-        ### OR-1855 (INACTIVE Metabolite) ###
+        # OR-1855 (INACTIVE Metabolite) 
         # Formed by gut metabolism, lost from acetylation (1896) 
         dC1855 = Rel - kac * C1855[t]
         C1855[t + 1] = C1855[t] + dC1855
 
-        ### OR-1896 (ACTIVE Metabolite) ###
+        # OR-1896 (ACTIVE Metabolite)
         # Formed by acetylation, lost to self decay
         dC1896 = kac * C1855[t] - k2 * C1896[t]
         C1896[t + 1] = C1896[t] + dC1896
 
-        ### Active Drug Concentration (PK Output)
+        # Active Drug Concentration (PK Output)
         Ce[t + 1] = f0 * CLevo[t + 1] + f2 * C1896[t + 1]
 
-        ### Effect Compartment (delay between plasma and tissue) ###
+        # Effect Compartment
         Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
         Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
-        ### Heart PD (Mass Transfer System) ###
+        # Heart PD 
         R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], HR0, R_sys0)
 
-        ### Cerebral Vasculature PD (Mass Transfer System) ###
+        # Brain PD
         R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1], R_cereb0)
-
+        
+    # Builds time axis and returns parameter outputs for Section 3
     time = (np.arange(0, int(T // dt)) * dt) / 24   # days
-    return dict(time=time, CLevo=np.array(CLevo), CGut=np.array(CGut),
-                C1855=np.array(C1855), C1896=np.array(C1896), Ce=np.array(Ce),
-                Ce_eff=np.array(Ce_eff), Ce_HR=np.array(Ce_HR), R_sys=np.array(R_sys),
-                SV=np.array(SV), HR=np.array(HR), CO=np.array(CO), MAP=np.array(MAP),
-                R_cereb=np.array(R_cereb), V_cereb=np.array(V_cereb))
+    outputs = dict(CLevo=CLevo, C1896=C1896, HR=HR, MAP=MAP, V_cereb=V_cereb)
+    return {"time": time, **{key: np.array(val) for key, val in outputs.items()}}
 
 ###############################################################################
 ###################### Section 2: Unpacking EPHYS Data ########################
@@ -326,11 +321,11 @@ def simulate(patient, regimen):
 # Stroke patient = unhealthy baseline (initial values)
 # No stroke patient = target
 
-## HYPERTENSION: Stroke vs No Stroke
+# HYPERTENSION: Stroke vs No Stroke
 S0175 = wfdb.rdrecord(data_dir / "s0175-tcd-0")  # S0175 - 64yo, Stroke, Hypertension (Baseline)
 S0157 = wfdb.rdrecord(data_dir / "s0157-tcd-0")  # S0157 - 67yo, No Stroke, Hypertension (Target)
 
-## NORMAL TENSION: Stroke vs No Stroke
+# NORMAL TENSION: Stroke vs No Stroke
 S0199 = wfdb.rdrecord(data_dir / "s0199-tcd-0")  # S0199 - 77yo, Stroke, Normal Tension (Baseline)
 S0200 = wfdb.rdrecord(data_dir / "s0200-tcd-0")  # S0200 - 70yo, No Stroke, Normal Tension (Target)
 
@@ -386,7 +381,6 @@ if show_EPHYS_plots:
         plt.legend()
         plt.show()
 
-
 ########################### Processing EPHYS Data #############################
 #
 # 1. Cut each recording to its resting window using the marker files
@@ -425,13 +419,11 @@ LMCA_only = ["S0199 (Normal Tension, Stroke)"]
 
 # Butterworth filters for bandpass
 def butter_highpass_filter(data, cutoff, fs, f_nyq, order):
-    HP_fc = cutoff / f_nyq
-    b, a = sig_sci.butter(order, HP_fc, btype='high', analog=False)
+    b, a = sig_sci.butter(order, cutoff / f_nyq, btype='high', analog=False)
     return sig_sci.filtfilt(b, a, data)
 
 def butter_lowpass_filter(data, cutoff, fs, f_nyq, order):
-    LP_fc = cutoff / f_nyq
-    b, a = sig_sci.butter(order, LP_fc, btype='low', analog=False)
+    b, a = sig_sci.butter(order, cutoff / f_nyq, btype='low', analog=False)
     return sig_sci.filtfilt(b, a, data)
 
 # Resting window: Keep data from baseline toto the first marker that is NOT baseline
@@ -473,22 +465,29 @@ def process(name, Pt):
     rr = rr[(rr >= 60 / HR_max) & (rr <= 60 / HR_min)]   # realistic resting HR only
     HR = 60 / np.mean(rr)           # bpm
 
-    # Blood pressure
+    # Blood pressure (raw BP at detected indices)
     SBP = np.mean(BP[systole_ind])  # mmHg
     DBP = np.mean(BP[diastole_ind]) # mmHg
     MAP = np.mean(BP[systole_ind[0]:systole_ind[-1]])  # mmHg
     PP = SBP - DBP                  # mmHg, pulse pressure
 
     # MCA velocity per beat, beats with dropouts masked
+    # Only S0199 has LMCA only
     sides = [LMCA] if name in LMCA_only else [LMCA, RMCA]
     v_side, dropped, v_masked = [], [], {}
     beats = list(zip(systole_ind[:-1], systole_ind[1:]))
+    
+    # Dropout Detection and Masking
+    # Check each beat, only true beats if lowest velocity > 0
+    # Physiologically, anything below that is False 
+    # Only append true beats to MCA velocity value
     for ch in sides:
         v = sig_sci.medfilt(signals[ch][i0:i1], k_med)    # spikes removed
         clean = [v[a:b].min() > 0 for a, b in beats]
         v_side.append(np.mean([np.mean(v[a:b]) for (a, b), ok in zip(beats, clean) if ok]))
         dropped.append(100 * (1 - np.mean(clean)))
         for (a, b), ok in zip(beats, clean):
+            # If false beat detected, mask them for the plotting
             if not ok:
                 v[a:b] = np.nan     # masked beat (shown as gap in plot)
         v_masked[ch] = v
