@@ -154,9 +154,9 @@ k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 # Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
 # Values fitted but parameters supported by [3] and [18]
-p_HR = 6                            # parent potency on HR and vessels (Fitted)
+k_HR = 6                            # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
-k_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
+k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
 ### Heart (Mass Transfer System) ###
 #
@@ -263,7 +263,7 @@ for t in range(0, int(T // dt - 1)):
 
     ### Effect Compartment (delay between plasma and tissue) ###
     Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
-    Ce_HR[t + 1] = Ce_HR[t] + k_HR * (p_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
+    Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
     ### Heart PD (Mass Transfer System) ###
     R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1])

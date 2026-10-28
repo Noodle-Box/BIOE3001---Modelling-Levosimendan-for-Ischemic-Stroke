@@ -163,9 +163,9 @@ Emax_HR = 0.11                           # fraction, maximum HR increase from Le
 # Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
 # Values fitted but parameters supported by [3] and [18]
-p_HR = 6                                 # parent potency on HR and vessels (Fitted)
+k_HR = 6                                 # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                         # hrs, fast effect delay for HR and vessels (Fitted)
-k_HR = (np.log(2)/keo_HR_thalf)*dt       # 1/hrs, pre-multiplied by dt
+k_eo_HR = (np.log(2)/keo_HR_thalf)*dt       # 1/hrs, pre-multiplied by dt
 
 # Hill Kinetics: dilation of systemic and cerebral vessels
 Emax_R = 0.4                             # fractional max R_sys and R_cereb drop. (Fitted)
@@ -197,12 +197,12 @@ keo_thalf = 10                           # hrs, compartment-effect time delay (F
 P_names = ["gut_rate", "Vm_ratio", "ac_rate", "m2_half",   # PK, Table 1
            "f0", "keo_thalf",                              # PD, Table 3
            "Emax_R", "EC50", "dSVmax", "Emax_HR",
-           "p_HR", "keo_HR_thalf"]                          # PD model structure (fixed)
+           "k_HR", "keo_HR_thalf"]                          # PD model structure (fixed)
 
 params0 = [gut_rate, Vm_ratio, ac_rate, m2_half,
            f0, keo_thalf,
            Emax_R, EC50, dSVmax, Emax_HR,
-           p_HR, keo_HR_thalf]
+           k_HR, keo_HR_thalf]
 
 ### Heart (Mass Transfer System) ###
 #
@@ -245,7 +245,7 @@ def simulate(params, regimen):
     ### Unpack parameters and regimen ###
     gut_rate, Vm_ratio, ac_rate, m2_half, f0, keo_thalf = params[0:6]
     P_HB = params[6:10]                 # heart block PD parameters
-    p_HR, keo_HR_thalf = params[10:12]  # fast effect site (HR and vessels)
+    k_HR, keo_HR_thalf = params[10:12]  # fast effect site (HR and vessels)
     dose_load, dose_sup, dose_inf = regimen[0], regimen[1], regimen[2]
 
     ### Rate constants (pre-multiplied by dt) ###
@@ -253,7 +253,7 @@ def simulate(params, regimen):
     kac = (np.log(2) / ac_rate) * dt        # 1/hrs, acetylation as half life (DERIVED)
     k2 = (np.log(2) / m2_half) * dt         # 1/hrs, OR-1896 half-life decay (DERIVED)
     k_eo = (np.log(2) / keo_thalf) * dt     # 1/hrs, pre-multiplied by dt
-    k_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, pre-multiplied by dt
+    k_eo_HR = (np.log(2) / keo_HR_thalf) * dt  # 1/hrs, pre-multiplied by dt
 
     ### Dose conversions for main loop ###
     R_inf = (dose_sup * 60 / V_kg) * dt     # ng/mL per step, infusion input
@@ -337,7 +337,7 @@ def simulate(params, regimen):
 
         ### Effect Compartment (delay between plasma and tissue) ###
         Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
-        Ce_HR[t + 1] = Ce_HR[t] + k_HR * (p_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
+        Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
         ### Heart PD (Mass Transfer System) ###
         R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1], P_HB)
@@ -416,7 +416,7 @@ P_upper = [200, 10, 200, 200, 1, 72, 1, 10, 1, 1, 50, 72]
 T1_range = [np.ptp(T1_Levo), np.ptp(T1_m1), np.ptp(T1_m2)]  # ng/mL, max - min
 
 # PD parameters held fixed 
-P_fixed = ["f0", "EC50", "dSVmax", "p_HR", "keo_HR_thalf"]
+P_fixed = ["f0", "EC50", "dSVmax", "k_HR", "keo_HR_thalf"]
 PD_names = P_names[N_PK:]
 PD_free = [n for n in PD_names if n not in P_fixed]
 i_free = [P_names.index(n) for n in PD_free]
@@ -528,7 +528,7 @@ plot_fit(ax[1], C1855, C1855_fit, T1_time, T1_m1,
          "OR-1855 Concentration (ng/mL)", "OR-1855 (Inactive Metabolite)")
 plot_fit(ax[2], C1896, C1896_fit, T1_time, T1_m2,
          "OR-1896 Concentration (ng/mL)", "OR-1896 (Active Metabolite)")
-fig.suptitle("Table 1: Levosimendan and Metabolites")
+fig.suptitle("PK: Levosimendan and Metabolites (Dosing regimen from Table 1")
 plt.tight_layout()
 plt.show()
 
@@ -540,7 +540,7 @@ plot_fit(ax[1], to_T3_units(MAP_T3, T3_MAP0), to_T3_units(MAP_T3_fit, T3_MAP0), 
          "MAP (mmHg)", "Mean Arterial Pressure")
 for a in ax:
     a.set_xlim(0, 2 * T3_time[-1])          
-fig.suptitle("Table 3: Heart Rate and MAP")
+fig.suptitle("PD: Heart Rate and MAP (Dosing regimen from Table 3)")
 plt.tight_layout()
 plt.show()
 
@@ -548,13 +548,13 @@ plt.show()
 time = (np.arange(0, int(T // dt)) * dt) / 24 # days
 
 code1_plots = [
-    (CLevo, CLevo_fit, "Levosimendan Concentration in Blood (ng/mL)", "Concentration of Levosimendan (Parent)"),
-    (CGut,  CGut_fit,  "Gut Concentration (ng/mL)",                   "Gut Transit of OR-1855 metabolite"),
-    (C1855, C1855_fit, "OR-1855 Concentration in Blood (ng/mL)",      "OR-1855 (Inactive Metabolite)"),
-    (C1896, C1896_fit, "OR-1896 in Blood (ng/mL)",                    "OR-1896 (Active Metabolite)"),
-    (np.array(MAP) / MMHG_TO_PA, np.array(MAP_fit) / MMHG_TO_PA,      "MAP (mmHg)", "Mean Arterial Pressure (MAP)"),
-    (np.array(HR) * 60,          np.array(HR_fit) * 60,               "HR (bpm)",   "Heart Rate (HR)"),
-    (np.array(V_cereb) * 100,    np.array(V_cereb_fit) * 100,         "Blood Velocity through MCA (cm/s)", "Cerebral Blood Flow Velocity"),
+    (CLevo, CLevo_fit, "Levosimendan Concentration in Blood (ng/mL)", "Parameterised Levosimendan Concentration"),
+    (CGut,  CGut_fit,  "Gut Concentration (ng/mL)",                   "Parameterised Gut Transition"),
+    (C1855, C1855_fit, "OR-1855 Concentration in Blood (ng/mL)",      "Parameterised OR-1855 Concentration"),
+    (C1896, C1896_fit, "OR-1896 in Blood (ng/mL)",                    "Parameterised OR-1896 Concentration"),
+    (np.array(MAP) / MMHG_TO_PA, np.array(MAP_fit) / MMHG_TO_PA,      "MAP (mmHg)", "Parameterised MAP"),
+    (np.array(HR) * 60,          np.array(HR_fit) * 60,               "HR (bpm)",   "Parameterised HR"),
+    (np.array(V_cereb) * 100,    np.array(V_cereb_fit) * 100,         "Blood Velocity through MCA (cm/s)", "Parameterised CBF"),
 ]
 for y_i, y_f, ylabel, title in code1_plots:
     plt.figure()

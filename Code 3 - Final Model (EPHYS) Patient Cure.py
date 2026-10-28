@@ -19,10 +19,14 @@
 ############################# Import Libraries ################################
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal as sig_sci          # peak detection
+import wfdb                         # wavefile database package (pip install wfdb)
+from pathlib import Path            # consistent paths between mac/linux/windows computers
 
 ############################# EPHYS Data Path #################################
 
 # Change path for marking/usage here please:
+data_dir = Path(r"C:\BIOE3001 - FINAL\Project Resources\Patient Data (16_10)")
 
 ###############################################################################
 ###################### Section 1: Model Implementation #########################
@@ -169,9 +173,9 @@ k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 # Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
 # Values fitted but parameters supported by [3] and [18]
-p_HR = 6                            # parent potency on HR and vessels (Fitted)
+k_HR = 6                            # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
-k_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
+k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
 
 ### Heart (Mass Transfer System) ###
 #
@@ -278,7 +282,7 @@ for t in range(0, int(T // dt - 1)):
 
     ### Effect Compartment (delay between plasma and tissue) ###
     Ce_eff[t + 1] = Ce_eff[t] + k_eo * (Ce[t] - Ce_eff[t])
-    Ce_HR[t + 1] = Ce_HR[t] + k_HR * (p_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
+    Ce_HR[t + 1] = Ce_HR[t] + k_eo_HR * (k_HR * f0 * CLevo[t] + f2 * C1896[t] - Ce_HR[t])
 
     ### Heart PD (Mass Transfer System) ###
     R_sys[t + 1], SV[t + 1], HR[t + 1], CO[t + 1], MAP[t + 1] = heart_block(Ce_eff[t + 1], Ce_HR[t + 1])
@@ -286,79 +290,231 @@ for t in range(0, int(T // dt - 1)):
     ### Cerebral Vasculature PD (Mass Transfer System) ###
     R_cereb[t + 1], V_cereb[t + 1] = cerebral_block(Ce_HR[t + 1], MAP[t + 1])
 
-############################## Plot Figure ####################################
-
-time = (np.arange(0, int(T // dt)) * dt) / 24 # days
-
-## Levosimendan Concentration 
-plt.figure()
-plt.plot(time, CLevo)
-plt.ylabel("Levosimendan Concentration in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("Concentration of Levosimendan (Parent)")
-plt.show()
-
-## Gut Transition of OR-1855
-plt.figure()
-plt.plot(time, CGut)
-plt.ylabel("Gut Concentration (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("Gut Transit of OR-1855 metabolite")
-plt.show()
-
-## OR-1855 Concentration 
-plt.figure()
-plt.plot(time, C1855)
-plt.ylabel("OR-1855 Concentration in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("OR-1855 (Inactive Metabolite)")
-plt.show()
-
-## OR-1896 Concentration 
-plt.figure()
-plt.plot(time, C1896)
-plt.ylabel("OR-1896 in Blood (ng/mL)")
-plt.xlabel("Time (days)")
-plt.title("OR-1896 (Active Metabolite)")
-plt.show()
-
-## Pharmacodynamic outputs with SI conversions
-MAP_mmHg = np.array(MAP) / MMHG_TO_PA
-HR_bpm = np.array(HR) * 60
-V_cereb_cms = np.array(V_cereb) * 100
-
-## MAP 
-plt.figure()
-plt.plot(time, MAP_mmHg)
-plt.ylabel("MAP (mmHg)")
-plt.xlabel("Time (days)")
-plt.title("Mean Arterial Pressure (MAP)")
-plt.show()
-
-## Heart Rate
-plt.figure()
-plt.plot(time, HR_bpm)
-plt.ylabel("HR (bpm)")
-plt.xlabel("Time (days)")
-plt.title("Heart Rate (HR)")
-plt.show()
-
-## Blood Velocity through the Middle Cerebral Artery (MCA M1)
-plt.figure()
-plt.plot(time, V_cereb_cms)
-plt.ylabel("Blood Velocity through MCA (cm/s)")
-plt.xlabel("Time (days)")
-plt.title("Cerebral Blood Flow Velocity")
-plt.show()
-
-
 ###############################################################################
 ###################### Section 2: Unpacking EPHYS Data ########################
 ###############################################################################
+# Copied directly from Harriet and Dwayne's Implementation (Thank you)
+
+############################# Load Patient Data ###############################
+# Stroke patient = unhealthy baseline (initial values)
+# No stroke patient = target
+
+## HYPERTENSION: Stroke vs No Stroke
+S0175 = wfdb.rdrecord(data_dir / "s0175-tcd-0")  # S0175 - 64yo, Stroke, Hypertension (Baseline)
+S0157 = wfdb.rdrecord(data_dir / "s0157-tcd-0")  # S0157 - 67yo, No Stroke, Hypertension (Target)
+
+## NORMAL TENSION: Stroke vs No Stroke
+S0199 = wfdb.rdrecord(data_dir / "s0199-tcd-0")  # S0199 - 77yo, Stroke, Normal Tension (Baseline)
+S0200 = wfdb.rdrecord(data_dir / "s0200-tcd-0")  # S0200 - 70yo, No Stroke, Normal Tension (Target)
 
 
+patients = {"S0175 (Hypertension, Stroke)": S0175,
+            "S0157 (Hypertension, No Stroke)": S0157,
+            "S0199 (Normal Tension, Stroke)": S0199,
+            "S0200 (Normal Tension, No Stroke)": S0200}
+
+# Patient body weights, directly from dataset [20]
+BW_pt = {"S0175 (Hypertension, Stroke)": 77,          # kg
+         "S0157 (Hypertension, No Stroke)": 74,       # kg
+         "S0199 (Normal Tension, Stroke)": 87,        # kg
+         "S0200 (Normal Tension, No Stroke)": 76}     # kg
+
+########################## Extract Signals of Interest ########################
+# Works with the wfdb data directly (from [19])
+# Signals picked by name, as channel order differs between patients
+
+channels = ["cerebral_blood_velocity_right",    # cm/s, RMCA velocity
+            "cerebral_blood_velocity_left",     # cm/s, LMCA velocity
+            "brachial_blood_velocity",          # cm/s, brachial velocity
+            "abp"]                              # mmHg, blood pressure
+labels = ["RMCA_Velocity (cm/s)", "LMCA_Velocity (cm/s)",
+          "Brachial_Velocity (cm/s)", "Blood_Pressure (mmHg)"]
+
+def unpack(Pt):
+    Fs = Pt.fs                              # Hz, sampling rate
+    dT = 1 / Fs                             # s, time between samples
+    time_vector = np.arange(Pt.sig_len) * dT   # s, recording time
+    signals = {ch: Pt.p_signal[:, Pt.sig_name.index(ch)] for ch in channels + ["ecg"]}
+    return Fs, dT, time_vector, signals
+
+EPHYS = {name: unpack(Pt) for name, Pt in patients.items()}
+
+############################## Plot Raw Data ##################################
+timeseq = [30, 35]                          # s, arbitrary 5 s window (from [19])
+
+for name, (Fs, dT, time_vector, signals) in EPHYS.items():
+    i0, i1 = timeseq[0] * Fs, timeseq[1] * Fs
+    plt.figure()
+    for ch, lab in zip(channels, labels):
+        plt.plot(time_vector[i0:i1], signals[ch][i0:i1], label=lab)
+    plt.xlabel("Time (s)")
+    plt.ylabel("Raw Signal")
+    plt.title(f"Raw EPHYS Data: {name}")
+    plt.legend()
+    plt.show()
 
 
+########################### Processing EPHYS Data #############################
+#
+# 1. Cut each recording to its resting window using the marker files
+# 2. Median filter MCA velocity (and BP for beat detection) to remove single-sample spikes
+# 3. Find each heart beat from blood pressure peaks (systole) and troughs (diastole)
+# 4. HR from band-passed ECG R-peaks, SBP/DBP from peaks/troughs, MAP over whole beats
+# 5. MCA velocity per beat, dropout beats removed, L and R averaged
+#
+# Markers: recordings are a test protocol (baseline, breathing tests, Valsalva, tilt)
+# Breathing tests and tilt change CO2 and BP on purpose, so only the resting
+# window (BASELINE to first test marker) gives baseline values
+#
+# Dropouts: MCA velocity <= 0 is lost Doppler signal (probe movement, poor
+# temporal window), not real flow. In a living brain MCA flow stays forward
+# all beat, so any beat with a dropout is masked out instead of averaged in.
+# Whole beats are removed, as removing single samples would bias the mean up
+#
+# Implementation based on [19]
+
+
+prom_BP = 10                        # mmHg, min prominence of BP peaks/troughs (from [20])
+beat_min = 0.33                     # s, min time between detected peaks (180 bpm)
+HR_min = 40                         # bpm, lowest realistic resting HR
+HR_max = 100                        # bpm, highest realistic resting HR
+
+# Median filter: replaces each sample with the median of its neighbours, so a
+# single-sample spike is removed while the beat shape (peaks, upstroke) is kept
+med_window = 0.1                    # s, filter window (much shorter than a beat)
+
+# ECG band-pass (from [20]): high-pass removes baseline wander, low-pass removes
+# high frequency noise, leaving the QRS complex for R-peak detection
+f_HP = 3                            # Hz, high-pass cut-off
+f_LP = 20                           # Hz, low-pass cut-off (below 25 Hz Nyquist)
+order = 4                           # Butterworth filter order
+R_prom = 0.5                        # R-peak prominence, fraction of 99th percentile
+                                    # of filtered ECG (ECG amplitude varies per patient)
+LMCA = "cerebral_blood_velocity_left"
+RMCA = "cerebral_blood_velocity_right"
+
+# S0199 uses LMCA only: 99% of RMCA beats are dropouts
+LMCA_only = ["S0199 (Normal Tension, Stroke)"]
+
+# Butterworth filters (from [20])
+def butter_highpass_filter(data, cutoff, fs, nyq_f, order):
+    normal_cutoff = cutoff / nyq_f
+    b, a = sig_sci.butter(order, normal_cutoff, btype='high', analog=False)
+    return sig_sci.filtfilt(b, a, data)
+
+def butter_lowpass_filter(data, cutoff, fs, nyq_f, order):
+    normal_cutoff = cutoff / nyq_f
+    b, a = sig_sci.butter(order, normal_cutoff, btype='low', analog=False)
+    return sig_sci.filtfilt(b, a, data)
+
+def rest_window(Pt):
+    markers = wfdb.rdann(str(data_dir / Pt.record_name), "marker")
+    k0 = markers.aux_note.index("BASELINE")                   # start of rest
+    k1 = next(k for k in range(k0, len(markers.aux_note))
+              if markers.aux_note[k] != "BASELINE")           # first test (HYPERVENT, S0200: T-HYPOVENT)
+    return markers.sample[k0], markers.sample[k1]
+
+def process(name, Pt):
+    Fs, dT, time_vector, signals = EPHYS[name]
+    i0, i1 = rest_window(Pt)
+    t = time_vector[i0:i1]
+    k_med = int(med_window * Fs) // 2 * 2 + 1      # samples, odd window (5 at 50 Hz)
+    BP = signals["abp"][i0:i1]                     # raw BP, used for all BP values
+    BP_f = sig_sci.medfilt(BP, k_med)               # filtered BP, used to find beats only
+    # (median filter clips the narrow systolic peaks at 50 Hz, so SBP is read from raw BP)
+
+    # Systolic peaks and diastolic troughs (from [20])
+    systole_ind, _ = sig_sci.find_peaks(BP_f, prominence=(prom_BP, None), distance=beat_min * Fs)
+    diastole_ind, _ = sig_sci.find_peaks(-BP_f, prominence=(prom_BP, None), distance=beat_min * Fs)
+
+    # Heart rate from band-passed ECG R-peaks (from [20])
+    nyq_f = Fs / 2                  # Hz, Nyquist frequency
+    ECG_HPF = butter_highpass_filter(signals["ecg"][i0:i1], f_HP, Fs, nyq_f, order)
+    ECG_HPF_LPF = butter_lowpass_filter(ECG_HPF, f_LP, Fs, nyq_f, order)
+    r_peaks, _ = sig_sci.find_peaks(ECG_HPF_LPF, distance=beat_min * Fs,
+                                    prominence=(R_prom * np.percentile(ECG_HPF_LPF, 99), None))
+    rr = np.diff(t[r_peaks])        # s, R-wave intervals
+    rr = rr[(rr >= 60 / HR_max) & (rr <= 60 / HR_min)]   # realistic resting HR only
+    HR = 60 / np.mean(rr)           # bpm
+
+    # Cross-check: HR from time between systolic BP peaks
+    beat_t = np.diff(t[systole_ind])
+    beat_t = beat_t[(beat_t >= 60 / HR_max) & (beat_t <= 60 / HR_min)]
+    HR_BP = 60 / np.mean(beat_t)    # bpm
+
+    # Blood pressure (from [20]), MAP averaged over whole beats only
+    SBP = np.mean(BP[systole_ind])  # mmHg
+    DBP = np.mean(BP[diastole_ind]) # mmHg
+    MAP = np.mean(BP[systole_ind[0]:systole_ind[-1]])  # mmHg
+    PP = SBP - DBP                  # mmHg, pulse pressure
+
+    # MCA velocity per beat, beats with dropouts masked
+    sides = [LMCA] if name in LMCA_only else [LMCA, RMCA]
+    v_side, dropped, v_masked = [], [], {}
+    beats = list(zip(systole_ind[:-1], systole_ind[1:]))
+    for ch in sides:
+        v = sig_sci.medfilt(signals[ch][i0:i1], k_med)    # spikes removed
+        clean = [v[a:b].min() > 0 for a, b in beats]
+        v_side.append(np.mean([np.mean(v[a:b]) for (a, b), ok in zip(beats, clean) if ok]))
+        dropped.append(100 * (1 - np.mean(clean)))
+        for (a, b), ok in zip(beats, clean):
+            if not ok:
+                v[a:b] = np.nan     # masked beat (shown as gap in plot)
+        v_masked[ch] = v
+    v_MCA = np.mean(v_side)         # cm/s, L and R average (or LMCA only)
+
+    return dict(BW=BW_pt[name], HR=HR, HR_BP=HR_BP, SBP=SBP, DBP=DBP, MAP=MAP, PP=PP, v_MCA=v_MCA,
+                v_side=dict(zip(sides, v_side)), dropped=dict(zip(sides, dropped)),
+                n_beats=len(beats), t=t, BP=BP, systole_ind=systole_ind,
+                diastole_ind=diastole_ind, v_masked=v_masked)
+
+Pt_values = {name: process(name, Pt) for name, Pt in patients.items()}
+
+########################## Baseline and Target Values #########################
+# Stroke patient = baseline (initial values), no stroke patient = target
+
+pairs = {"Hypertension": ("S0175 (Hypertension, Stroke)", "S0157 (Hypertension, No Stroke)"),
+         "Normal Tension": ("S0199 (Normal Tension, Stroke)", "S0200 (Normal Tension, No Stroke)")}
+
+print(f"{'Patient':34}{'BW':>5}{'Beats':>6}{'HR':>7}{'HR_BP':>7}{'SBP':>7}{'DBP':>7}{'MAP':>7}{'PP':>6}"
+      f"{'LMCA':>7}{'RMCA':>7}{'v_MCA':>7}  Dropped beats (L / R)")
+for name, P in Pt_values.items():
+    L = P["v_side"].get(LMCA, np.nan)
+    R = P["v_side"].get(RMCA, np.nan)
+    dL = P["dropped"].get(LMCA, np.nan)
+    dR = P["dropped"].get(RMCA, np.nan)     # nan = side not used (S0199 RMCA)
+    print(f"{name:34}{P['BW']:>5}{P['n_beats']:>6}{P['HR']:>7.1f}{P['HR_BP']:>7.1f}{P['SBP']:>7.1f}{P['DBP']:>7.1f}{P['MAP']:>7.1f}"
+          f"{P['PP']:>6.1f}{L:>7.1f}{R:>7.1f}{P['v_MCA']:>7.1f}  {dL:.0f}% / {dR:.0f}%")
+print("Units: BW kg, HR bpm (ECG; HR_BP = BP cross-check), pressures mmHg, velocities cm/s")
+
+baseline = {group: Pt_values[stroke] for group, (stroke, healthy) in pairs.items()}
+target = {group: Pt_values[healthy] for group, (stroke, healthy) in pairs.items()}
+
+########################### Plot Processed Data ###############################
+# 10 s of resting data: detected beats on BP and MCA velocity with masked beats
+
+t_show = 10                         # s, window shown from start of rest
+
+for name, P in Pt_values.items():
+    n = int(t_show * EPHYS[name][0])
+    s = P["systole_ind"][P["systole_ind"] < n]
+    d = P["diastole_ind"][P["diastole_ind"] < n]
+    t = P["t"][:n] - P["t"][0]
+    fig, ax = plt.subplots(2, 1, sharex=True)
+    ax[0].plot(t, P["BP"][:n], label="Blood Pressure")
+    ax[0].plot(t[s], P["BP"][s], "x", label="Systole (peaks)")
+    ax[0].plot(t[d], P["BP"][d], "rx", label="Diastole (troughs)")
+    ax[0].axhline(P["MAP"], color="grey", linestyle="--", label=f"MAP = {P['MAP']:.1f} mmHg")
+    ax[0].set_ylabel("Pressure (mmHg)")
+    ax[0].legend(loc="upper right", fontsize=8)
+    for ch, v in P["v_masked"].items():
+        ax[1].plot(t, v[:n], label=("LMCA" if ch == LMCA else "RMCA") + " (filtered, dropouts masked)")
+    ax[1].axhline(P["v_MCA"], color="grey", linestyle="--", label=f"Mean = {P['v_MCA']:.1f} cm/s")
+    ax[1].set_ylabel("MCA Velocity (cm/s)")
+    ax[1].set_xlabel("Time from start of rest (s)")
+    ax[1].legend(loc="upper right", fontsize=8)
+    fig.suptitle(f"Processed EPHYS Data: {name}")
+    plt.show()
 
 
 ###############################################################################
@@ -402,5 +558,6 @@ plt.show()
 # [14] {Slawsky, 2000}
 # [15] {Mirza, 2024}
 # [16] {SafeCareVictoria, 2018}
-# [17] {Mann, 2016}
 # [18] {Lilleberg, 2007}
+# [19] {Mann, 2026}
+# [20] {Novak, 2010}
