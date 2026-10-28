@@ -506,23 +506,28 @@ Pt_values = {name: process(name, Pt) for name, Pt in patients.items()}
 pairs = {"Hypertension": ("S0175 (Hypertension, Stroke)", "S0157 (Hypertension, No Stroke)"),
          "Normal Tension": ("S0199 (Normal Tension, Stroke)", "S0200 (Normal Tension, No Stroke)")}
 
-## Final filtered values per patient
+# Final filtered values per patient. Format to 1 DP
 def fmt(x):                         # "-" = side not used (S0199 RMCA)
     return "-" if np.isnan(x) else f"{x:.1f}"
 
+# Create the table for terminal output. Run through amount of patients loaded
 cols = ["Age (y)", "BW (kg)", "HR (bpm)", "MAP (mmHg)", "LMCA (cm/s)", "RMCA (cm/s)",
         "Averaged MCA (cm/s)", "Dropped Beats (L/R %)"]
-w_pt = max(len(n) for n in Pt_values) + 1   # patient column width (longest name + 1)
-w_col = [len(c) + 2 for c in cols]  # each column fits its title + 1 space each side
+w_pt = max(len(n) for n in Pt_values) + 1  
+w_col = [len(c) + 2 for c in cols]  
 
+# lines match the table width
 header = f"{'Patient':{w_pt}}|" + "".join(f"{c:^{n}}" for c, n in zip(cols, w_col))
-width = len(header)                 # lines match the table width
+width = len(header)                 
 
+# Table borders and sectioning
 print("=" * width)
 print(f"{'EPHYS Data Processing':^{width}}")
 print("=" * width)
 print(header)
 print("-" * width)
+
+# Table formatting for each side's values
 for name, P in Pt_values.items():
     L = P["v_side"].get(LMCA, np.nan)
     R = P["v_side"].get(RMCA, np.nan)
@@ -533,27 +538,39 @@ for name, P in Pt_values.items():
            fmt(L), fmt(R), f"{P['v_MCA']:.1f}", drop_txt]
     print(f"{name:{w_pt}}|" + "".join(f"{v:^{n}}" for v, n in zip(row, w_col)))
 
+# Set up stroke values as baseline and non-stroke values as target for personal treatment
 baseline = {group: Pt_values[stroke] for group, (stroke, healthy) in pairs.items()}
 target = {group: Pt_values[healthy] for group, (stroke, healthy) in pairs.items()}
 
 ########################### Plot Processed Data ###############################
 # 10 s of resting data: detected beats on BP and MCA velocity with masked beats
 
-t_show = 10                         # s, window shown from start of rest
+t_show = 10                         # s 
 
 if show_EPHYS_plots:
     for name, P in Pt_values.items():
+        
+        # n. of samples in 10s window
         n = int(t_show * EPHYS[name][0])
+        
+        # Only sistolic peak and diastolic troughs
         s = P["systole_ind"][P["systole_ind"] < n]
         d = P["diastole_ind"][P["diastole_ind"] < n]
+        
+        # time axis shifted to start at 0
         t = P["t"][:n] - P["t"][0]
+        
         fig, ax = plt.subplots(2, 1, sharex=True)
+        
+        # Blood Pressure and MAP
         ax[0].plot(t, P["BP"][:n], label="Blood Pressure")
         ax[0].plot(t[s], P["BP"][s], "x", label="Systole (peaks)")
         ax[0].plot(t[d], P["BP"][d], "rx", label="Diastole (troughs)")
         ax[0].axhline(P["MAP"], color="grey", linestyle="--", label=f"MAP = {P['MAP']:.1f} mmHg")
         ax[0].set_ylabel("Pressure (mmHg)")
         ax[0].legend(loc="upper right", fontsize=8)
+        
+        # LMCA, RMCA and VMCA
         for ch, v in P["v_masked"].items():
             ax[1].plot(t, v[:n], label=("LMCA" if ch == LMCA else "RMCA") + " (filtered, dropouts masked)")
         ax[1].axhline(P["v_MCA"], color="grey", linestyle="--", label=f"Mean = {P['v_MCA']:.1f} cm/s")
@@ -562,7 +579,6 @@ if show_EPHYS_plots:
         ax[1].legend(loc="upper right", fontsize=8)
         fig.suptitle(f"Processed EPHYS Data: {name}")
         plt.show()
-
 
 ###############################################################################
 ###################### Section 3: Curing the Patients #########################
