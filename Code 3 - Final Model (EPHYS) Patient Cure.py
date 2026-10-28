@@ -319,6 +319,12 @@ BW_pt = {"S0175 (Hypertension, Stroke)": 77,          # kg
          "S0199 (Normal Tension, Stroke)": 87,        # kg
          "S0200 (Normal Tension, No Stroke)": 76}     # kg
 
+# Patient ages, directly from dataset [20]
+Age_pt = {"S0175 (Hypertension, Stroke)": 64,         # years
+          "S0157 (Hypertension, No Stroke)": 67,      # years
+          "S0199 (Normal Tension, Stroke)": 77,       # years
+          "S0200 (Normal Tension, No Stroke)": 70}    # years
+
 ########################## Extract Signals of Interest ########################
 # Works with the wfdb data directly (from [19])
 # Signals picked by name, as channel order differs between patients
@@ -463,7 +469,7 @@ def process(name, Pt):
         v_masked[ch] = v
     v_MCA = np.mean(v_side)         # cm/s, L and R average (or LMCA only)
 
-    return dict(BW=BW_pt[name], HR=HR, HR_BP=HR_BP, SBP=SBP, DBP=DBP, MAP=MAP, PP=PP, v_MCA=v_MCA,
+    return dict(Age=Age_pt[name], BW=BW_pt[name], HR=HR, HR_BP=HR_BP, SBP=SBP, DBP=DBP, MAP=MAP, PP=PP, v_MCA=v_MCA,
                 v_side=dict(zip(sides, v_side)), dropped=dict(zip(sides, dropped)),
                 n_beats=len(beats), t=t, BP=BP, systole_ind=systole_ind,
                 diastole_ind=diastole_ind, v_masked=v_masked)
@@ -476,16 +482,32 @@ Pt_values = {name: process(name, Pt) for name, Pt in patients.items()}
 pairs = {"Hypertension": ("S0175 (Hypertension, Stroke)", "S0157 (Hypertension, No Stroke)"),
          "Normal Tension": ("S0199 (Normal Tension, Stroke)", "S0200 (Normal Tension, No Stroke)")}
 
-print(f"{'Patient':34}{'BW':>5}{'Beats':>6}{'HR':>7}{'HR_BP':>7}{'SBP':>7}{'DBP':>7}{'MAP':>7}{'PP':>6}"
-      f"{'LMCA':>7}{'RMCA':>7}{'v_MCA':>7}  Dropped beats (L / R)")
+## Final filtered values per patient
+def fmt(x):                         # "-" = side not used (S0199 RMCA)
+    return "-" if np.isnan(x) else f"{x:.1f}"
+
+cols = ["Age (y)", "BW (kg)", "HR (bpm)", "MAP (mmHg)", "LMCA (cm/s)", "RMCA (cm/s)",
+        "Averaged MCA (cm/s)", "Dropped Beats (L/R %)"]
+w_pt = max(len(n) for n in Pt_values) + 1   # patient column width (longest name + 1)
+w_col = [len(c) + 2 for c in cols]  # each column fits its title + 1 space each side
+
+header = f"{'Patient':{w_pt}}|" + "".join(f"{c:^{n}}" for c, n in zip(cols, w_col))
+width = len(header)                 # lines match the table width
+
+print("=" * width)
+print(f"{'EPHYS Data Processing':^{width}}")
+print("=" * width)
+print(header)
+print("-" * width)
 for name, P in Pt_values.items():
     L = P["v_side"].get(LMCA, np.nan)
     R = P["v_side"].get(RMCA, np.nan)
     dL = P["dropped"].get(LMCA, np.nan)
-    dR = P["dropped"].get(RMCA, np.nan)     # nan = side not used (S0199 RMCA)
-    print(f"{name:34}{P['BW']:>5}{P['n_beats']:>6}{P['HR']:>7.1f}{P['HR_BP']:>7.1f}{P['SBP']:>7.1f}{P['DBP']:>7.1f}{P['MAP']:>7.1f}"
-          f"{P['PP']:>6.1f}{L:>7.1f}{R:>7.1f}{P['v_MCA']:>7.1f}  {dL:.0f}% / {dR:.0f}%")
-print("Units: BW kg, HR bpm (ECG; HR_BP = BP cross-check), pressures mmHg, velocities cm/s")
+    dR = P["dropped"].get(RMCA, np.nan)
+    drop_txt = f"{dL:.0f} / " + ("-" if np.isnan(dR) else f"{dR:.0f}")
+    row = [f"{P['Age']}", f"{P['BW']}", f"{P['HR']:.1f}", f"{P['MAP']:.1f}",
+           fmt(L), fmt(R), f"{P['v_MCA']:.1f}", drop_txt]
+    print(f"{name:{w_pt}}|" + "".join(f"{v:^{n}}" for v, n in zip(row, w_col)))
 
 baseline = {group: Pt_values[stroke] for group, (stroke, healthy) in pairs.items()}
 target = {group: Pt_values[healthy] for group, (stroke, healthy) in pairs.items()}
