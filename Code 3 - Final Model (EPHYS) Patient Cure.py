@@ -584,7 +584,6 @@ if show_EPHYS_plots:
 ###################### Section 3: Curing the Patients #########################
 ###############################################################################
 
-########################## Patient Values into Model ##########################
 # Stroke patient baselines from Section 2, converted to model (SI) units
 
 def patient_inputs(P):
@@ -598,14 +597,22 @@ patient_in = {group: patient_inputs(P) for group, P in baseline.items()}
 # Same per-kg regimen for every patient (similar age and weight), so only the
 # patient baselines differ. Each infusion repeats every dose_sch days
 #
-# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1] 
+# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1]
 # Table 3: 12 ug/kg loading dose, then 200 ng/kg/min for 24 hrs [3]
 
-regimens = {"Table 1": regimen_default,
-            "Table 3": dict(dose_load=12 * 1000,       # ng/kg, 12 ug/kg loading dose [3]
-                            dose_sup=200,              # ng/kg/min, infusion rate [3]
-                            dose_inf=24,               # hrs, infusion duration [3]
-                            dose_sch=dose_sch)}        # days, repeat interval (Section 1)
+# Regimen Toggles
+# TRUE = run and plot this regimen for both patient groups (2 figures each)
+# FALSE = skip this regimen
+
+regimen_T1 = True                   # BOOLEAN, Table 1 regimen [1]
+regimen_T3 = True                   # BOOLEAN, Table 3 regimen [3]
+
+# Pre-stored regimens: (toggle, regimen)
+all_regimens = {"Table 1": (regimen_T1, dict(dose_load=0, dose_sup=100, dose_inf=24, dose_sch=5)),         
+                "Table 3": (regimen_T3, dict(dose_load=12 * 1000, dose_sup=200, dose_inf=24, dose_sch=5))}         
+
+# Only the regimens toggled on are run and plotted
+regimens = {name: reg for name, (on, reg) in all_regimens.items() if on}
 
 def regimen_text(reg):
     # Short regimen description for plot titles (ug/kg/min, ug/kg)
@@ -664,34 +671,6 @@ def safety(R, P, regimen):
 
 safe = {name: {group: safety(results[name][group], baseline[group], regimens[name])
                for group in patient_in} for name in regimens}
-
-## Safety table, same layout as the Section 2 table
-cols = ["HR max (bpm)", "HR rise 24h (bpm)", "MAP min (mmHg)", "MAP floor (mmHg)",
-        "v peak (cm/s)", "v rise 24h (cm/s)", "Limits"]
-row_names = {(name, group): f"{name}, {group}" for name in safe for group in safe[name]}
-w_grp = max(len(r) for r in row_names.values()) + 1   # regimen/group column width
-w_col = [len(c) + 2 for c in cols]
-
-header = f"{'Regimen, Patient Group':{w_grp}}|" + "".join(f"{c:^{n}}" for c, n in zip(cols, w_col))
-width = len(header)
-
-print("=" * width)
-print(f"{'Treatment Safety Check':^{width}}")
-print("=" * width)
-print(header)
-print("-" * width)
-for name in safe:
-    for group, (checks, val) in safe[name].items():
-        failed = [k for k, ok in checks.items() if not ok]
-        row = [f"{val['HR_max']:.1f}", f"{val['dHR']:.1f}", f"{val['MAP_min']:.1f}",
-               f"{val['MAP_floor']:.1f}", f"{val['v_peak']:.1f}", f"{val['dv24']:.1f}",
-               "PASS" if not failed else "FAIL"]
-        print(f"{row_names[(name, group)]:{w_grp}}|" + "".join(f"{v:^{n}}" for v, n in zip(row, w_col)))
-        if failed:
-            print(f"{'':{w_grp}}|  Failed: " + ", ".join(failed))
-    print("-" * width)
-print("Limits: HR <= +15 bpm in first 24 hrs [2], MAP >= 60 + PP0/3 [21], "
-      "v <= 120 cm/s and <= +50 cm/s in 24 hrs [23], [24]")
 
 ########################### Plot Treatment Results ############################
 # One figure per regimen and patient group: effective drug, HR, MAP, MCA velocity
