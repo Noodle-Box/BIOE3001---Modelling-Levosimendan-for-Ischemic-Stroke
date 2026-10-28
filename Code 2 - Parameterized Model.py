@@ -26,7 +26,7 @@ from SALib.analyze import sobol
 # FALSE: Just parameterisation of Code #1
 # TRUE: Both paramterisation and sensitivity analysis observing Cerebral Blood Flow (V_cereb)
 
-run_sensitivity = False             # BOOLEAN, CHANGE WHEN NEEDED
+run_sensitivity = True             # BOOLEAN, CHANGE WHEN NEEDED
 
 ###############################################################################
 ###################### Section 1: Model Implementation #########################
@@ -584,7 +584,7 @@ for y_i, y_f, ylabel, title in code1_plots:
 #
 # Implementation from [17]
 
-N_sobol = 1024      # Saltelli base samples. 1024 confirmed by conf being small
+N_sobol = 1024      # Saltelli base samples
 t_obs = 7           # days 
 
 # Model outputs for one parameter set

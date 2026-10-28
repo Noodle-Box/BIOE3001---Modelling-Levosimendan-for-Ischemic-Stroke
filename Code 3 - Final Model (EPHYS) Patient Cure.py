@@ -50,7 +50,7 @@ else:
 # TRUE = also show the raw and processed EPHYS data plots (Section 2)
 # FALSE = treatment plots only (Section 3)
 
-show_EPHYS_plots = False            # BOOLEAN, CHANGE WHEN NEEDED
+show_EPHYS_plots = True            # BOOLEAN, CHANGE WHEN NEEDED
 
 dt = 0.1                            # hrs, time step
 T = T_days * 24                     # hrs, time course
@@ -395,10 +395,6 @@ if show_EPHYS_plots:
 # 4. HR from band-passed ECG R-peaks, SBP/DBP from peaks/troughs, MAP over whole beats
 # 5. MCA velocity per beat, dropout beats removed, L and R averaged
 #
-# Markers: recordings are a test protocol (baseline, breathing tests, Valsalva, tilt)
-# Breathing tests and tilt change CO2 and BP on purpose, so only the resting
-# window (BASELINE to first test marker) gives baseline values
-#
 # Dropouts: MCA velocity <= 0 is lost Doppler signal (probe movement, poor
 # temporal window), not real flow. In a living brain MCA flow stays forward
 # all beat, so any beat with a dropout is masked out instead of averaged in.
@@ -406,20 +402,18 @@ if show_EPHYS_plots:
 #
 # Implementation based on [19]
 
-
 prom_BP = 10                        # mmHg, min prominence of BP peaks/troughs (from [20])
 beat_min = 0.33                     # s, min time between detected peaks (180 bpm)
 HR_min = 40                         # bpm, lowest realistic resting HR
-HR_max = 100                        # bpm, highest realistic resting HR
+HR_max = 120                        # bpm, highest realistic resting HR
 
 # Median filter: replaces each sample with the median of its neighbours, so a
 # single-sample spike is removed while the beat shape (peaks, upstroke) is kept
 med_window = 0.1                    # s, filter window (much shorter than a beat)
 
-# ECG band-pass (from [20]): high-pass removes baseline wander, low-pass removes
-# high frequency noise, leaving the QRS complex for R-peak detection
-f_HP = 3                            # Hz, high-pass cut-off
-f_LP = 20                           # Hz, low-pass cut-off (below 25 Hz Nyquist)
+# ECG band-pass 
+fc_HP = 3                            # Hz, HP cut off (baseline wander)
+fc_LP = 20                           # Hz, LP cut off (muscle/movement noise and data sampled at 50Hz)
 order = 4                           # Butterworth filter order
 R_prom = 0.5                        # R-peak prominence, fraction of 99th percentile
                                     # of filtered ECG (ECG amplitude varies per patient)
@@ -429,53 +423,57 @@ RMCA = "cerebral_blood_velocity_right"
 # S0199 uses LMCA only: 99% of RMCA beats are dropouts
 LMCA_only = ["S0199 (Normal Tension, Stroke)"]
 
-# Butterworth filters (from [20])
-def butter_highpass_filter(data, cutoff, fs, nyq_f, order):
-    normal_cutoff = cutoff / nyq_f
-    b, a = sig_sci.butter(order, normal_cutoff, btype='high', analog=False)
+# Butterworth filters for bandpass
+def butter_highpass_filter(data, cutoff, fs, f_nyq, order):
+    HP_fc = cutoff / f_nyq
+    b, a = sig_sci.butter(order, HP_fc, btype='high', analog=False)
     return sig_sci.filtfilt(b, a, data)
 
-def butter_lowpass_filter(data, cutoff, fs, nyq_f, order):
-    normal_cutoff = cutoff / nyq_f
-    b, a = sig_sci.butter(order, normal_cutoff, btype='low', analog=False)
+def butter_lowpass_filter(data, cutoff, fs, f_nyq, order):
+    LP_fc = cutoff / f_nyq
+    b, a = sig_sci.butter(order, LP_fc, btype='low', analog=False)
     return sig_sci.filtfilt(b, a, data)
 
+# Resting window: Keep data from baseline toto the first marker that is NOT baseline
+# Remove respiratory noise
 def rest_window(Pt):
     markers = wfdb.rdann(str(data_dir / Pt.record_name), "marker")
-    k0 = markers.aux_note.index("BASELINE")                   # start of rest
+    k0 = markers.aux_note.index("BASELINE")                   
     k1 = next(k for k in range(k0, len(markers.aux_note))
-              if markers.aux_note[k] != "BASELINE")           # first test (HYPERVENT, S0200: T-HYPOVENT)
+              if markers.aux_note[k] != "BASELINE")           
     return markers.sample[k0], markers.sample[k1]
 
+# Function to take patient's loaded record and returns the baseline values for
+# patient curing
 def process(name, Pt):
+    # Unpack patient signal from EPHYS data loading
     Fs, dT, time_vector, signals = EPHYS[name]
+    
+    # Get their resting window from marker file
     i0, i1 = rest_window(Pt)
     t = time_vector[i0:i1]
     k_med = int(med_window * Fs) // 2 * 2 + 1      # samples, odd window (5 at 50 Hz)
     BP = signals["abp"][i0:i1]                     # raw BP, used for all BP values
-    BP_f = sig_sci.medfilt(BP, k_med)               # filtered BP, used to find beats only
-    # (median filter clips the narrow systolic peaks at 50 Hz, so SBP is read from raw BP)
+    BP_f = sig_sci.medfilt(BP, k_med)              # filtered BP, used to find all beats
+    # (median filter clips the narrow systolic peaks at 50 Hz, SBP is read from raw BP)
 
-    # Systolic peaks and diastolic troughs (from [20])
+    # Systolic peaks and diastolic troughs
+    # Need to be at least 10 mmHg and 0.33s apart to be legit
     systole_ind, _ = sig_sci.find_peaks(BP_f, prominence=(prom_BP, None), distance=beat_min * Fs)
     diastole_ind, _ = sig_sci.find_peaks(-BP_f, prominence=(prom_BP, None), distance=beat_min * Fs)
 
-    # Heart rate from band-passed ECG R-peaks (from [20])
-    nyq_f = Fs / 2                  # Hz, Nyquist frequency
-    ECG_HPF = butter_highpass_filter(signals["ecg"][i0:i1], f_HP, Fs, nyq_f, order)
-    ECG_HPF_LPF = butter_lowpass_filter(ECG_HPF, f_LP, Fs, nyq_f, order)
-    r_peaks, _ = sig_sci.find_peaks(ECG_HPF_LPF, distance=beat_min * Fs,
-                                    prominence=(R_prom * np.percentile(ECG_HPF_LPF, 99), None))
+    # Heart rate from band-passed ECG R-peaks
+    # Need to be at least 0.33s apart to be legit
+    f_nyq = Fs / 2                                 # Hz, Nyquist frequency
+    ECG_HPF = butter_highpass_filter(signals["ecg"][i0:i1], fc_HP, Fs, f_nyq, order)
+    ECG_HPfc_LPF = butter_lowpass_filter(ECG_HPF, fc_LP, Fs, f_nyq, order)
+    r_peaks, _ = sig_sci.find_peaks(ECG_HPfc_LPF, distance=beat_min * Fs, prominence=(R_prom * np.percentile(ECG_HPfc_LPF, 99), None))
+    # Time between consecutive R-peaks. Intervals outside [40,120] BPM filtered out
     rr = np.diff(t[r_peaks])        # s, R-wave intervals
     rr = rr[(rr >= 60 / HR_max) & (rr <= 60 / HR_min)]   # realistic resting HR only
     HR = 60 / np.mean(rr)           # bpm
 
-    # Cross-check: HR from time between systolic BP peaks
-    beat_t = np.diff(t[systole_ind])
-    beat_t = beat_t[(beat_t >= 60 / HR_max) & (beat_t <= 60 / HR_min)]
-    HR_BP = 60 / np.mean(beat_t)    # bpm
-
-    # Blood pressure (from [20]), MAP averaged over whole beats only
+    # Blood pressure
     SBP = np.mean(BP[systole_ind])  # mmHg
     DBP = np.mean(BP[diastole_ind]) # mmHg
     MAP = np.mean(BP[systole_ind[0]:systole_ind[-1]])  # mmHg
@@ -496,7 +494,7 @@ def process(name, Pt):
         v_masked[ch] = v
     v_MCA = np.mean(v_side)         # cm/s, L and R average (or LMCA only)
 
-    return dict(Age=Age_pt[name], BW=BW_pt[name], HR=HR, HR_BP=HR_BP, SBP=SBP, DBP=DBP, MAP=MAP, PP=PP, v_MCA=v_MCA,
+    return dict(Age=Age_pt[name], BW=BW_pt[name], HR=HR, SBP=SBP, DBP=DBP, MAP=MAP, PP=PP, v_MCA=v_MCA,
                 v_side=dict(zip(sides, v_side)), dropped=dict(zip(sides, dropped)),
                 n_beats=len(beats), t=t, BP=BP, systole_ind=systole_ind,
                 diastole_ind=diastole_ind, v_masked=v_masked)
@@ -583,13 +581,13 @@ patient_in = {group: patient_inputs(P) for group, P in baseline.items()}
 
 ########################### Treatment Regimens ###############################
 # Same per-kg regimen for every patient (similar age and weight), so only the
-# patient baselines differ. Each infusion repeats every dose_sch days (Section 1)
+# patient baselines differ. Each infusion repeats every dose_sch days
 #
-# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1] (Section 1 default)
+# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1] 
 # Table 3: 12 ug/kg loading dose, then 200 ng/kg/min for 24 hrs [3]
 
 regimens = {"Table 1": regimen_default,
-            "Table 3": dict(dose_load=12 * 1000,      # ng/kg, 12 ug/kg loading dose [3]
+            "Table 3": dict(dose_load=12 * 1000,       # ng/kg, 12 ug/kg loading dose [3]
                             dose_sup=200,              # ng/kg/min, infusion rate [3]
                             dose_inf=24,               # hrs, infusion duration [3]
                             dose_sch=dose_sch)}        # days, repeat interval (Section 1)
@@ -745,6 +743,12 @@ for name, reg in regimens.items():
                      f"{stroke_id} (Stroke) vs {healthy_id} (Target)")
         fig.tight_layout()
         plt.show()
+
+# NOTES: At least 2 dosing regimens
+# Cure at least 4 patients
+#
+# Hypertension: Stroke vs No Stroke
+# Normal tension: Stroke vs No Stroke
 
 ############################## References #####################################
 # Declaration of AI use
