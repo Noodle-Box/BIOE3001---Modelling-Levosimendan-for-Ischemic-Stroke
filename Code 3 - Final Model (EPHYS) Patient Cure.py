@@ -19,28 +19,44 @@
 ############################# Import Libraries ################################
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy.signal as sig_sci          # peak detection
+import scipy.signal as sig_sci      # peak detection
 import wfdb                         # wavefile database package (pip install wfdb)
 from pathlib import Path            # consistent paths between mac/linux/windows computers
 
-############################# EPHYS Data Path #################################
+############ FOR MARKER: Initial setup before you play with this thing ########
 
-# Change path for marking/usage here please:
+# 1.) Change path for marking/usage here please:
 data_dir = Path(r"C:\BIOE3001 - FINAL\Project Resources\Patient Data (16_10)")
+
+# 2.) Please keep repeat_dosing. You CAN try and mess with it btu you'll never
+#     reach v_MCA target
+
+repeat_dosing = True                # BOOLEAN, CHANGE WHEN NEEDED
+
+# 3.) Here are my 4 dosing regimens that I have tried.
+#
+# Dose 1 (T1): 100 ng/kg/min for 24 hrs, no loading dose (Table 1 dosing)
+# Dose 2 (T3): 12 ug/kg loading dose, then 200 ng/kg/min for 24 hrs (Table 3 dosing)
+# Dose 3 (X1): Personalised treatment for Stroke (Hypertension) <-- this one works
+# Dose 4 (X2): Personalised treatment for Stroke (Normal Tension) <-- doesn't work but I talk about it in report
+
+# TRUE = run and plot this regimen for both patient groups (2 figures each)
+# FALSE = skip this regimen
+
+regimen_T1 = True                 # BOOLEAN, Table 1 regimen [1]
+regimen_T3 = True                 # BOOLEAN, Table 3 regimen [3]
+regimen_X1 = True                 # BOOLEAN, optimal dosing regimen for S0175
+regimen_X2 = True                 # BOOLEAN, maximum dosing attempt for S0199
+
+# That's it enjoy marking :)
+###############################################################################
+
+
 
 ###############################################################################
 ###################### Section 1: Model Implementation #########################
 ###############################################################################
-
-####################### Dose Scheduling and Time Steps ########################
 ## Time course: set in days, runs in hrs
-
-# Run Mode Toggle
-# TRUE = scheduling on, dosing schedule to maintain homeostasis levels
-# FALSE = scheduling off, 1 dose for shape and quantity analysis
-
-repeat_dosing = True                # BOOLEAN, CHANGE WHEN NEEDED
-
 if repeat_dosing:
     T_days = 30                     # days, time course to show repeat dosing
 else:
@@ -594,20 +610,6 @@ def patient_inputs(P):
 patient_in = {group: patient_inputs(P) for group, P in baseline.items()}
 
 ########################### Treatment Regimens ###############################
-# Same per-kg regimen for every patient (similar age and weight), so only the
-# patient baselines differ. Each infusion repeats every dose_sch days
-#
-# Table 1: 100 ng/kg/min for 24 hrs, no loading dose [1]
-# Table 3: 12 ug/kg loading dose, then 200 ng/kg/min for 24 hrs [3]
-
-# Regimen Toggles
-# TRUE = run and plot this regimen for both patient groups (2 figures each)
-# FALSE = skip this regimen
-
-regimen_T1 = False                 # BOOLEAN, Table 1 regimen [1]
-regimen_T3 = False                 # BOOLEAN, Table 3 regimen [3]
-regimen_X1 = True                  # BOOLEAN, optimal dosing regimen for S0175
-regimen_X2 = False                 # BOOLEAN, maximum dosing attempt for S0199
 
 # Pre-stored regimens: (toggle, regimen)
 all_regimens = {"Table 1": (regimen_T1, dict(dose_load=0, dose_sup=100, dose_inf=24, dose_sch=5)),         

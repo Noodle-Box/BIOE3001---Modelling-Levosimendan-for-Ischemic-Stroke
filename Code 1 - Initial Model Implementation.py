@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 # TRUE = scheduling on, dosing schedule to maintain homeostasis levels
 # FALSE = scheduling off, 1 dose for shape and quantity analysis
 
-repeat_dosing = True                # BOOLEAN, CHANGE WHEN NEEDED
+repeat_dosing = False                # BOOLEAN, CHANGE WHEN NEEDED
 
 if repeat_dosing:
     T_days = 30                     # days, time course to show repeat dosing
