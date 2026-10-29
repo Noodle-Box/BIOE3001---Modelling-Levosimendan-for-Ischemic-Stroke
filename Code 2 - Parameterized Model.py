@@ -26,7 +26,7 @@ from SALib.analyze import sobol
 # FALSE: Just parameterisation of Code #1
 # TRUE: Both paramterisation and sensitivity analysis observing Cerebral Blood Flow (V_cereb)
 
-run_sensitivity = True             # BOOLEAN, CHANGE WHEN NEEDED
+run_sensitivity = False             # BOOLEAN, CHANGE WHEN NEEDED
 
 ###############################################################################
 ###################### Section 1: Model Implementation #########################

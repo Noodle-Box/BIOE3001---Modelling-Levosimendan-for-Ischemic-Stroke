@@ -36,21 +36,21 @@ T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
 # Patient-Specific Body parameters 
-BW = 80                             # kg, sample body weight from [1], [10]
+BW = 80                             # kg, sample body weight from [1], [7]
 
 # Unit conversion macros
 MMHG_TO_PA = 133.322                # Pa per mmHg
 ML_TO_M3 = 1e-6                     # m^3 per mL
 
 # Patient-specific heart baselines 
-HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [10]
-SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11]
-MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [11]
+HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [7]
+SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [8]
+MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [8]
 
 # Patient-specific brain baselines 
-v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
-P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
-r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
+v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [8]
+P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [11]
+r_cereb = 0.00128                   # m, MCA M1 radius. From [12]
 
 ############################# Parameters: Dosing ##############################
 # Dosing: 100 ng/kg/min IV for 24 hrs
@@ -99,11 +99,11 @@ C_dose_load = dose_load / V_kg      # ng/mL, loading dose jump at t = 0
 
 # Parameters: Gut Transit (delay before metabolites)
 T_gut = 30                          # hrs, time when gut starts to release (FITTED FROM [1])
-gut_rate = 53                       # hrs, gut release rate From [13]
+gut_rate = 53                       # hrs, gut release rate From [9]
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
 
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
+m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [9]
 Vm_ratio = 0.5                      # parent-to-metabolite volume ratio (FITTED FROM [1])
 
 # Parameters: OR-1896 Metabolite (Active)
@@ -112,7 +112,7 @@ k2 = (np.log(2) / m2_half) * dt     # 1/hrs, half-life decay (DERIVED)
 f2 = 0.61                           # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 9.6                       # hrs, acetylation rate. From [13]
+ac_rate = 9.6                       # hrs, acetylation rate. From [9]
 kac = (np.log(2)/ac_rate)*dt        # 1/hrs, acetylation as half life(DERIVED)
 
 ################### Parameters: Body (Pharmacodynamics) #######################
@@ -122,7 +122,7 @@ kac = (np.log(2)/ac_rate)*dt        # 1/hrs, acetylation as half life(DERIVED)
 EC50 = 0.5                          # ng/mL, shared EC50 (Fitted)
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.28                       # fraction, maximum SV increase from Levosimendan. From [14]
+dSVmax = 0.28                       # fraction, maximum SV increase from Levosimendan. From [10]
 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                      # fraction, maximum HR increase from Levosimendan. From [2],[3]
@@ -339,30 +339,16 @@ plt.show()
 # [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
 
-# Full references details are in reference manager
-#
-# Table 1.
-# [1] {Puttonen, 2008}
-#
-# Table 2.
-# [2] {Kivikko, 2015}
-#
-# Table 3.
-# [3] {Álvarez, 2006}
-#
-# Others:
-# [4] {Antila, 2004}
-# [5] {Robinson, 2026}
-# [6] {Kashou, 2022}
-# [7] {Khalil, 2019}
-# [8] {DeMers, 2023}
-# [9] {Munakomi, 2026}
-# [10] {Böhm, 2012}
-# [11] {Miller, 2021}
-# [12] {Hood, 2023}
-# [13] {Bertin, 2026}
-# [14] {Slawsky, 2000}
-# [15] {Mirza, 2024}
-# [16] {SafeCareVictoria, 2018}
-# [17] {Mann, 2016}
-# [18] {Lilleberg, 2007}
+# Full references details are in report
+# [1] (Puttonen et al., 2008)
+# [2] (Kivikko et al., 2015)
+# [3] (Álvarez et al., 2006)
+# [4] (Antila et al., 2004)
+# [5] (Robinson & Allenby, 2026)
+# [6] (Safer Care Victoria, 2018)
+# [7] (Böhm et al., 2012)
+# [8] (Miller et al., 2021)
+# [9] (Bertin et al., 2026)
+# [10] (Slawsky et al., 2000)
+# [11] (Hood et al., 2023)
+# [12] (Mirza et al., 2024) 
