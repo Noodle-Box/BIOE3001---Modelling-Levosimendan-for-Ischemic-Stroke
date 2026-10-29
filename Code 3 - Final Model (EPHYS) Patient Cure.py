@@ -57,7 +57,7 @@ T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
 # Patient-Specific Body parameters
-BW = 80                             # kg, sample body weight from [1], [10]
+BW = 80                             # kg, sample body weight from [1], [7]
 
 # Unit conversion macros
 MMHG_TO_PA = 133.322                # Pa per mmHg
@@ -66,17 +66,17 @@ ML_TO_M3 = 1e-6                     # m^3 per mL
 # Patient-specific heart baselines
 # HR0, MAP0 and v_cereb0 are set per patient in Section 3 from the EPHYS data
 HR0 = None                          # Hz, baseline heart rate (Section 2)
-SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11] (not measured in EPHYS)
+SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [8] (not measured in EPHYS)
 MAP0 = None                         # Pa, baseline MAP (Section 2)
 
 # Patient-specific brain baselines
 v_cereb0 = None                     # m/s, baseline MCA velocity (Section 2)
-P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
-r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
+P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [11]
+r_cereb = 0.00128                   # m, MCA M1 radius. From [12]
 
 ############################# Parameters: Dosing ##############################
 # Dosing: 100 ng/kg/min IV for 24 hrs
-# no loading dose (usual 50–200), From [16]
+# no loading dose (usual 50–200), From [6]
 
 dose_load = 0                       # ng/kg, loading dose at t = 0
 dose_sup = 100                      # ng/kg/min, supplementary dosing infusion rate
@@ -91,7 +91,7 @@ regimen_default = dict(dose_load=dose_load, dose_sup=dose_sup,
 
 # Parameters: Levosimendan (Active)
 #
-# Initial drug dosing based off Table 1 dosing regimen since Safer Care Victoria [16] 
+# Initial drug dosing based off Table 1 dosing regimen since Safer Care Victoria [6] 
 # has similar dosing regimen to source
 #
 # Levosimendan enters at constant infusion rate but constant loss clears most
@@ -118,7 +118,7 @@ gut_rate = 65.9                     # hrs, gut release rate (Parameterized)
 kg = (np.log(2) / gut_rate) * dt    # 1/hrs, gut release rate as half life (DERIVED)
 
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [13]
+m1 = 0.05                           # Formation Fraction into OR-1855 metabolite. From [9]
 Vm_ratio = 0.5275                   # parent-to-metabolite volume ratio (Parameterized)
 
 # Parameters: OR-1896 Metabolite (Active)
@@ -137,7 +137,7 @@ kac = (np.log(2)/ac_rate)*dt        # 1/hrs, acetylation as half life(DERIVED)
 EC50 = 0.5                          # ng/mL, shared EC50 (Fitted)
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.28                       # fraction, maximum SV increase from Levosimendan. From [14]
+dSVmax = 0.28                       # fraction, maximum SV increase from Levosimendan. From [10]
 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.153                     # fraction, maximum HR increase from Levosimendan (Parameterized)
@@ -155,7 +155,7 @@ k_eo = (np.log(2) / keo_thalf) * dt # 1/hrs, pre-multiplied by dt
 
 # Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
-# Values fitted but parameters supported by [3] and [18]
+# Values fitted but parameters supported by [3] and [13]
 k_HR = 6                            # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                    # hrs, fast effect delay for HR and vessels (Fitted)
 k_eo_HR = (np.log(2)/keo_HR_thalf)*dt  # 1/hrs, pre-multiplied by dt
@@ -335,20 +335,20 @@ patients = {"S0175 (Hypertension, Stroke)": S0175,
             "S0199 (Normal Tension, Stroke)": S0199,
             "S0200 (Normal Tension, No Stroke)": S0200}
 
-# Patient body weights, directly from dataset [20]
+# Patient body weights, directly from dataset [15]
 BW_pt = {"S0175 (Hypertension, Stroke)": 77,          # kg
          "S0157 (Hypertension, No Stroke)": 74,       # kg
          "S0199 (Normal Tension, Stroke)": 87,        # kg
          "S0200 (Normal Tension, No Stroke)": 76}     # kg
 
-# Patient ages, directly from dataset [20]
+# Patient ages, directly from dataset [15]
 Age_pt = {"S0175 (Hypertension, Stroke)": 64,         # years
           "S0157 (Hypertension, No Stroke)": 67,      # years
           "S0199 (Normal Tension, Stroke)": 77,       # years
           "S0200 (Normal Tension, No Stroke)": 70}    # years
 
 ########################## Extract Signals of Interest ########################
-# Works with the wfdb data directly (from [19])
+# Works with the wfdb data directly (from [14])
 # Signals picked by name, as channel order differs between patients
 
 channels = ["cerebral_blood_velocity_right",    # cm/s, RMCA velocity
@@ -367,7 +367,7 @@ def unpack(Pt):
 EPHYS = {name: unpack(Pt) for name, Pt in patients.items()}
 
 ############################## Plot Raw Data ##################################
-timeseq = [30, 35]                          # s, arbitrary 5 s window (from [19])
+timeseq = [30, 35]                          # s, arbitrary 5 s window (from [14])
 
 if show_EPHYS_plots:
     for name, (Fs, dT, time_vector, signals) in EPHYS.items():
@@ -394,9 +394,9 @@ if show_EPHYS_plots:
 # all beat, so any beat with a dropout is masked out instead of averaged in.
 # Whole beats are removed, as removing single samples would bias the mean up
 #
-# Implementation based on [19]
+# Implementation based on [14]
 
-prom_BP = 10                        # mmHg, min prominence of BP peaks/troughs (from [20])
+prom_BP = 10                        # mmHg, min prominence of BP peaks/troughs (from [15])
 beat_min = 0.33                     # s, min time between detected peaks (180 bpm)
 HR_min = 40                         # bpm, lowest realistic resting HR
 HR_max = 120                        # bpm, highest realistic resting HR
@@ -608,7 +608,9 @@ regimen_T1 = True                   # BOOLEAN, Table 1 regimen [1]
 regimen_T3 = True                   # BOOLEAN, Table 3 regimen [3]
 
 # Pre-stored regimens: (toggle, regimen)
+# %%
 all_regimens = {"Table 1": (regimen_T1, dict(dose_load=0, dose_sup=100, dose_inf=24, dose_sch=5)),         
+
                 "Table 3": (regimen_T3, dict(dose_load=12 * 1000, dose_sup=200, dose_inf=24, dose_sch=5))}         
 
 # Only the regimens toggled on are run and plotted
@@ -634,17 +636,17 @@ healthy_run = {group: simulate(healthy_in[group], regimen_none) for group in hea
 # Same limits for every patient (closest match to our stroke population)
 #
 # HR: rise limit over the first 24 hrs, stopping rule in prior stroke/TIA patients [2]
-# MAP: floor from the DBP >= 60 mmHg warning, using MAP = DBP + PP/3 [21]
+# MAP: floor from the DBP >= 60 mmHg warning, using MAP = DBP + PP/3 [16]
 # Loading dose: only if baseline SBP >= 90 mmHg [22]
-# v_MCA: absolute peak (vasospasm range) [23] and rate of rise [24]
-# Dose: infusion rate range [16], [21]
+# v_MCA: absolute peak (vasospasm range) [17] and rate of rise [18]
+# Dose: infusion rate range [6], [16]
 
 dHR_lim = 15                        # bpm, max HR rise from baseline in the first 24 hrs [2]
-DBP_lim = 60                        # mmHg, DBP floor, MAP floor = DBP_lim + PP0/3 [21]
+DBP_lim = 60                        # mmHg, DBP floor, MAP floor = DBP_lim + PP0/3 [16]
 SBP_load = 90                       # mmHg, min baseline SBP for a loading dose [22]
-v_lim = 120                         # cm/s, absolute MCA velocity peak [23]
-dv_lim = 50                         # cm/s, max MCA velocity rise within 24 hrs [24]
-dose_min, dose_max = 50, 200        # ng/kg/min, infusion rate range (0.05-0.2 ug/kg/min) [16], [21]
+v_lim = 120                         # cm/s, absolute MCA velocity peak [17]
+dv_lim = 50                         # cm/s, max MCA velocity rise within 24 hrs [18]
+dose_min, dose_max = 50, 200        # ng/kg/min, infusion rate range (0.05-0.2 ug/kg/min) [6], [16]
 
 def rise_24h(x):
     # Largest rise within any 24 hr window (each hour vs the max over the next 24 hrs)
@@ -710,7 +712,7 @@ for name, reg in regimens.items():
         ax[0, 1].set_title("Heart Rate")
         ax[0, 1].legend(loc="best", fontsize=8)
 
-        # MAP with patient-specific floor [21]
+        # MAP with patient-specific floor [16]
         MAP_floor = DBP_lim + P["PP"] / 3
         for X, c, lab in runs:
             ax[1, 0].plot(t_d, X["MAP"] / MMHG_TO_PA, color=c, label=lab)
@@ -721,7 +723,7 @@ for name, reg in regimens.items():
         ax[1, 0].set_title("Mean Arterial Pressure")
         ax[1, 0].legend(loc="best", fontsize=8)
 
-        # MCA velocity with absolute and rate of rise limits [23], [24]
+        # MCA velocity with absolute and rate of rise limits [17], [18]
         v_rate = np.minimum(v[0] + dv_lim * t_d, v_lim)   # max rise of 50 cm/s per day from baseline
         for X, c, lab in runs:
             ax[1, 1].plot(t_d, X["V_cereb"] * 100, color=c, label=lab)
@@ -738,46 +740,30 @@ for name, reg in regimens.items():
         fig.tight_layout()
         plt.show()
 
-# NOTES: At least 2 dosing regimens
-# Cure at least 4 patients
-#
-# Hypertension: Stroke vs No Stroke
-# Normal tension: Stroke vs No Stroke
-
 ############################## References #####################################
 # Declaration of AI use
-# [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
+# Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
+# Full references details are in report
+# [1] (Puttonen et al., 2008)
+# [2] (Kivikko et al., 2015)
+# [3] (Álvarez et al., 2006)
+# [4] (Antila et al., 2004)
+# [5] (Robinson & Allenby, 2026)
+# [6] (Safer Care Victoria, 2018)
+# [7] (Böhm et al., 2012)
+# [8] (Miller et al., 2021)
+# [9] (Bertin et al., 2026)
+# [10] (Slawsky et al., 2000)
+# [11] (Hood et al., 2023)
+# [12] (Mirza et al., 2024)
+# [13] (Lilleberg et al., 2007)
+# [14] (Mann & Allenby, 2026a)
+# [15] (Novak et al., 2010)
+# [16] (Orion Pharma [NZ] Limited, 2025)
+# [17] (Lindegaard et al., 1989)
+# [18] (Grosset et al., 1992) 
+# [19] 
 
-# Full references details are in reference manager
-#
-# Table 1.
-# [1] {Puttonen, 2008}
-#
-# Table 2.
-# [2] {Kivikko, 2015}
-#
-# Table 3.
-# [3] {Álvarez, 2006}
-#
-# Others:
-# [4] {Antila, 2004}
-# [5] {Robinson, 2026}
-# [6] {Kashou, 2022}
-# [7] {Khalil, 2019}
-# [8] {DeMers, 2023}
-# [9] {Munakomi, 2026}
-# [10] {Böhm, 2012}
-# [11] {Miller, 2021}
-# [12] {Hood, 2023}
-# [13] {Bertin, 2026}
-# [14] {Slawsky, 2000}
-# [15] {Mirza, 2024}
-# [16] {SafeCareVictoria, 2018}
-# [18] {Lilleberg, 2007}
-# [19] {Mann, 2026}
-# [20] {Novak, 2010}
-# [21] {Orion Pharma, 2025} Simdax data sheet
+# NEED BETTER SOURCE
 # [22] {SESLHD, 2024} Levosimendan medicine guideline
-# [23] {Lindegaard, 1989}
-# [24] {Grosset, 1992}

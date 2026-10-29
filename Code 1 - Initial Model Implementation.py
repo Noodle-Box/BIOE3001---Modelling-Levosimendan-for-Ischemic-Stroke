@@ -336,9 +336,8 @@ plt.show()
 
 ############################## References #####################################
 # Declaration of AI use
-# [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
+# Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
-
 # Full references details are in report
 # [1] (Puttonen et al., 2008)
 # [2] (Kivikko et al., 2015)

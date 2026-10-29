@@ -84,26 +84,26 @@ T = T_days * 24                     # hrs, time course
 
 ############################# Parameters: Patient #############################
 # Patient-Specific Body parameters
-BW = 80                             # kg, sample body weight from [1], [10]
+BW = 80                             # kg, sample body weight from [1], [7]
 
 # Unit conversion macros
 MMHG_TO_PA = 133.322                # Pa per mmHg
 ML_TO_M3 = 1e-6                     # m^3 per mL
 
 # Patient-specific heart baselines
-HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [10]
-SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [11]
-MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [11]
+HR0 = 70.0 / 60.0                   # Hz, baseline heart rate. From [7]
+SV0 = 77.0 * ML_TO_M3               # m^3, baseline SV. From [8]
+MAP0 = 105.0 * MMHG_TO_PA           # Pa, baseline MAP. From [8]
 
 # Patient-specific brain baselines
-v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [11]
-P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [12]
-r_cereb = 0.00128                   # m, MCA M1 radius. From [15]
+v_cereb0 = 0.40                     # m/s, baseline MCA velocity. From [8]
+P_brain = 10.0 * MMHG_TO_PA         # Pa, intracranial pressure. From [11]
+r_cereb = 0.00128                   # m, MCA M1 radius. From [12]
 
 ############################# Parameters: Dosing ##############################
 # Each regimen = [loading dose (ng/kg), infusion rate (ng/kg/min), infusion duration (hrs)]
 # Built from the Table 1 and Table 3 input data, so simulate() can run either one
-# Usual range: 0.05 - 0.2ug/kg/min. From [16]
+# Usual range: 0.05 - 0.2ug/kg/min. From [6]
 
 T1_regimen = [T1_load * 1000, T1_dose, T1_T_inf]  # Table 1 [1], ug/kg x 1000 -> ng/kg
 T3_regimen = [T3_load * 1000, T3_dose, T3_T_inf]  # Table 3 [3], ug/kg x 1000 -> ng/kg
@@ -112,7 +112,7 @@ T3_regimen = [T3_load * 1000, T3_dose, T3_T_inf]  # Table 3 [3], ug/kg x 1000 ->
 
 # Parameters: Levosimendan (Active)
 #
-# Initial drug dosing based off Table 1 dosing regimen since Safer Care Victoria [16] 
+# Initial drug dosing based off Table 1 dosing regimen since Safer Care Victoria [6] 
 # has similar dosing regimen to source
 #
 # Levosimendan enters at constant infusion rate but constant loss clears most
@@ -135,10 +135,10 @@ C0_per_dose = C0_levo / dose_ref         # ng/mL per (ng/kg/min), intercept per 
 
 # Parameters: Gut Transit (delay before metabolites)
 T_gut = 30                               # hrs, time when gut starts to release (FITTED FROM [1])
-gut_rate = 53                            # hrs, gut release rate From [13]
+gut_rate = 53                            # hrs, gut release rate From [9]
 
 # Parameters: OR-1855 Metabolite (Inactive)
-m1 = 0.05                                # Formation Fraction into OR-1855 metabolite. From [13]
+m1 = 0.05                                # Formation Fraction into OR-1855 metabolite. From [9]
 Vm_ratio = 0.5                           # parent-to-metabolite volume ratio (FITTED FROM [1])
 
 # Parameters: OR-1896 Metabolite (Active)
@@ -146,7 +146,7 @@ m2_half = 7.7                            # hrs, OR-1896 half-life (FITTED)
 f2 = 0.61                                # Free Fraction OR-1896. From [1], [4]
 
 # Parameters: Acetylation (OR-1855 -> OR-1896) through NAT2 enzyme
-ac_rate = 9.6                            # hrs, acetylation rate. From [13]
+ac_rate = 9.6                            # hrs, acetylation rate. From [9]
 
 ################### Parameters: Body (Pharmacodynamics) #######################
 # PD is kept in SI, patient baselines are defined at top
@@ -155,14 +155,14 @@ ac_rate = 9.6                            # hrs, acetylation rate. From [13]
 EC50 = 0.5                               # ng/mL, shared EC50 (Fitted)
 
 # Hill Kinetics: drug effect on stroke volume
-dSVmax = 0.28                            # fraction, maximum SV increase from Levosimendan. From [14]
+dSVmax = 0.28                            # fraction, maximum SV increase from Levosimendan. From [10]
 
 # Hill Kinetics: drug effect on heart rate
 Emax_HR = 0.11                           # fraction, maximum HR increase from Levosimendan. From [2],[3]
 
 # Fast parent-weighted effect (Ce_HR) on HR and resistance (R_sys, R_cereb):
 # Not explicit but needed from back calibration of Code #2 to better fit PD Table 3 data
-# Values fitted but parameters supported by [3] and [18]
+# Values fitted but parameters supported by [3] and [14]
 k_HR = 6                                 # parent potency on HR and vessels (Fitted)
 keo_HR_thalf = 6                         # hrs, fast effect delay for HR and vessels (Fitted)
 k_eo_HR = (np.log(2)/keo_HR_thalf)*dt       # 1/hrs, pre-multiplied by dt
@@ -191,7 +191,7 @@ keo_thalf = 10                           # hrs, compartment-effect time delay (F
 
 ############################ Parameters to Fit ################################
 # Initial values (starting guesses for the optimiser) are the Code 1 values above.
-# Passed to the fit as one parameter list. From [17]. Order is fixed:
+# Passed to the fit as one parameter list. From [13]. Order is fixed:
 # PK set by Table 1 first, then PD set by Table 3
 
 P_names = ["gut_rate", "Vm_ratio", "ac_rate", "m2_half",   # PK, Table 1
@@ -235,7 +235,7 @@ def cerebral_block(Ce_val, MAP_v, Emax_v, EC50_v):
 ############################# Model Function ##################################
 # Runs the Code 1 model for one parameter set and one dosing regimen, so the
 # parameterisation can call it many times. Model loop inside a function of
-# the parameters, from [17]
+# the parameters, from [13]
 #
 # params  = fitted parameters, same order as P_names
 # regimen = [loading dose (ng/kg), infusion rate (ng/kg/min), infusion duration (hrs)]
@@ -370,12 +370,12 @@ def pct(y, y0):
 def pct_curve(y):
     return pct(y, y[0])
 
-# Model value at each data time (index = t / dt). From [17]
+# Model value at each data time (index = t / dt). From [13]
 def sample(curve, t_data):
     idx = [int(round(t / dt)) for t in t_data]
     return np.array(curve, dtype=float)[idx]
 
-# R^2 and RMSE. From [17]
+# R^2 and RMSE. From [13]
 def fit_metrics(y_data, y_model):
     y_data = np.array(y_data, dtype=float)
     residual = y_data - y_model
@@ -383,7 +383,7 @@ def fit_metrics(y_data, y_model):
     RMSE = np.sqrt(np.mean(residual ** 2))
     return R2, RMSE
 
-# Initial model, fitted model and data on one subplot. From [17]
+# Initial model, fitted model and data on one subplot. From [13]
 def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
     ax.plot(time_hrs, y_init, "r", label="Initial model")
     ax.plot(time_hrs, y_fit, "b--", label="Fitted model")
@@ -404,7 +404,7 @@ def plot_fit(ax, y_init, y_fit, t_data, y_data, ylabel, title):
 #
 # least_squares with bounds keeps parameters physical
 # 
-# Implementation from [17]
+# Implementation from [13]
 
 N_PK = 4                               # first 4 P_names are PK
 
@@ -437,7 +437,7 @@ T3_MAP_pct = pct(T3_MAP, T3_MAP0)[1:]
 W_HR, W_MAP = 0.5, 0.5
 T3_scale = [np.max(np.abs(T3_HR_pct)), np.max(np.abs(T3_MAP_pct))]
 
-# Residual functions: data - model at the data times. From [17]
+# Residual functions: data - model at the data times. From [13]
 def funcPK(params_PK, params_PD):
     CLevo_m, CGut_m, C1855_m, C1896_m = simulate(list(params_PK) + list(params_PD), T1_regimen)[0:4]
     res_Levo = (np.array(T1_Levo) - sample(CLevo_m, T1_time)) / T1_range[0]
@@ -497,7 +497,7 @@ for i, name in enumerate(P_names):
     on_bound = "  (at bound)" if np.isclose(params_fit[i], [P_lower[i], P_upper[i]], rtol=1e-3).any() else ""
     print(f"{name:<13}{params0[i]:>9.4g}{params_fit[i]:>10.4g}{SE_str:>10}{change:>8.1f}%  {P_units[i]:<7}{set_by}{on_bound}")
 
-# Fit quality: R^2 and RMSE, initial vs fitted. From [17]
+# Fit quality: R^2 and RMSE, initial vs fitted. From [13]
 # Model % change converted to Table 3 units (bpm, mmHg)
 def to_T3_units(y_model, y0_data):
     return y0_data * (1 + pct_curve(y_model) / 100)
@@ -582,7 +582,7 @@ for y_i, y_f, ylabel, title in code1_plots:
 #
 # N_sobol * 26 = 26624 runs 
 #
-# Implementation from [17]
+# Implementation from [13]
 
 N_sobol = 1024      # Saltelli base samples
 t_obs = 7           # days 
@@ -639,32 +639,20 @@ if run_sensitivity:
 
 ############################## References #####################################
 # Declaration of AI use
-# [0] Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
+# Anthropic, "Claude, Opus 5.5," Claude, 22 October 2026 [Online]. https://claude.ai/new
 #
-# Full references details are in reference manager
-#
-# Table 1.
-# [1] {Puttonen, 2008}
-#
-# Table 2.
-# [2] {Kivikko, 2015}
-#
-# Table 3.
-# [3] {Álvarez, 2006}
-#
-# Others:
-# [4] {Antila, 2004}
-# [5] {Robinson, 2026}
-# [6] {Kashou, 2022}
-# [7] {Khalil, 2019}
-# [8] {DeMers, 2023}
-# [9] {Munakomi, 2026}
-# [10] {Böhm, 2012}
-# [11] {Miller, 2021}
-# [12] {Hood, 2023}
-# [13] {Bertin, 2026}
-# [14] {Slawsky, 2000}
-# [15] {Mirza, 2024}
-# [16] {SafeCareVictoria, 2018}
-# [17] {Mann, 2016}
-# [18] {Lilleberg, 2007}
+# Full references details are in report
+# [1] (Puttonen et al., 2008)
+# [2] (Kivikko et al., 2015)
+# [3] (Álvarez et al., 2006)
+# [4] (Antila et al., 2004)
+# [5] (Robinson & Allenby, 2026)
+# [6] (Safer Care Victoria, 2018)
+# [7] (Böhm et al., 2012)
+# [8] (Miller et al., 2021)
+# [9] (Bertin et al., 2026)
+# [10] (Slawsky et al., 2000)
+# [11] (Hood et al., 2023)
+# [12] (Mirza et al., 2024)
+# [13] (Mann & Allenby, 2026b)
+# [14] (Lilleberg et al., 2007)
