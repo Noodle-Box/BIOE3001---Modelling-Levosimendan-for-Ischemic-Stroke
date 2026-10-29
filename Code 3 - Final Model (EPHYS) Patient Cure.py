@@ -610,7 +610,6 @@ regimen_X1 = True                  # BOOLEAN, optimal dosing regimen for S0175
 regimen_X2 = False                 # BOOLEAN, maximum dosing attempt for S0199
 
 # Pre-stored regimens: (toggle, regimen)
-# %%
 all_regimens = {"Table 1": (regimen_T1, dict(dose_load=0, dose_sup=100, dose_inf=24, dose_sch=5)),         
 
                 "Table 3": (regimen_T3, dict(dose_load=12 * 1000, dose_sup=200, dose_inf=24, dose_sch=5)),
@@ -632,7 +631,7 @@ def regimen_text(reg):
 results = {name: {group: simulate(patient_in[group], reg) for group in patient_in}
            for name, reg in regimens.items()}
 
-# Reference runs with no drug: stroke patient (untreated) and healthy patient (target)
+# No drug patient lines: Unstreated stroke baseline and healthy target
 regimen_none = dict(dose_load=0, dose_sup=0, dose_inf=dose_inf, dose_sch=dose_sch)
 untreated = {group: simulate(patient_in[group], regimen_none) for group in patient_in}
 healthy_in = {group: patient_inputs(P) for group, P in target.items()}
