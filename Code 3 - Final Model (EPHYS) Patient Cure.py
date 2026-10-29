@@ -604,14 +604,20 @@ patient_in = {group: patient_inputs(P) for group, P in baseline.items()}
 # TRUE = run and plot this regimen for both patient groups (2 figures each)
 # FALSE = skip this regimen
 
-regimen_T1 = True                   # BOOLEAN, Table 1 regimen [1]
-regimen_T3 = True                   # BOOLEAN, Table 3 regimen [3]
+regimen_T1 = False                 # BOOLEAN, Table 1 regimen [1]
+regimen_T3 = False                 # BOOLEAN, Table 3 regimen [3]
+regimen_X1 = True                  # BOOLEAN, optimal dosing regimen for S0175
+regimen_X2 = False                 # BOOLEAN, maximum dosing attempt for S0199
 
 # Pre-stored regimens: (toggle, regimen)
 # %%
 all_regimens = {"Table 1": (regimen_T1, dict(dose_load=0, dose_sup=100, dose_inf=24, dose_sch=5)),         
 
-                "Table 3": (regimen_T3, dict(dose_load=12 * 1000, dose_sup=200, dose_inf=24, dose_sch=5))}         
+                "Table 3": (regimen_T3, dict(dose_load=12 * 1000, dose_sup=200, dose_inf=24, dose_sch=5)),
+                
+                "Test 1": (regimen_X1, dict(dose_load=0, dose_sup=70, dose_inf=24, dose_sch=5)),
+                
+                "Test 2": (regimen_X2, dict(dose_load=15 * 1000, dose_sup=300, dose_inf=24, dose_sch=5)),}         
 
 # Only the regimens toggled on are run and plotted
 regimens = {name: reg for name, (on, reg) in all_regimens.items() if on}
@@ -633,17 +639,17 @@ healthy_in = {group: patient_inputs(P) for group, P in target.items()}
 healthy_run = {group: simulate(healthy_in[group], regimen_none) for group in healthy_in}
 
 ############################### Safety Limits #################################
-# Same limits for every patient (closest match to our stroke population)
+# Same limits for every patient. Guide limits for dosing to prevent Cardiotoxicity 
 #
 # HR: rise limit over the first 24 hrs, stopping rule in prior stroke/TIA patients [2]
 # MAP: floor from the DBP >= 60 mmHg warning, using MAP = DBP + PP/3 [16]
-# Loading dose: only if baseline SBP >= 90 mmHg [22]
+# Loading dose: only if baseline SBP >= 90 mmHg [19]
 # v_MCA: absolute peak (vasospasm range) [17] and rate of rise [18]
 # Dose: infusion rate range [6], [16]
 
 dHR_lim = 15                        # bpm, max HR rise from baseline in the first 24 hrs [2]
 DBP_lim = 60                        # mmHg, DBP floor, MAP floor = DBP_lim + PP0/3 [16]
-SBP_load = 90                       # mmHg, min baseline SBP for a loading dose [22]
+SBP_load = 90                       # mmHg, min baseline SBP for a loading dose [19]
 v_lim = 120                         # cm/s, absolute MCA velocity peak [17]
 dv_lim = 50                         # cm/s, max MCA velocity rise within 24 hrs [18]
 dose_min, dose_max = 50, 200        # ng/kg/min, infusion rate range (0.05-0.2 ug/kg/min) [6], [16]
@@ -763,7 +769,4 @@ for name, reg in regimens.items():
 # [16] (Orion Pharma [NZ] Limited, 2025)
 # [17] (Lindegaard et al., 1989)
 # [18] (Grosset et al., 1992) 
-# [19] 
-
-# NEED BETTER SOURCE
-# [22] {SESLHD, 2024} Levosimendan medicine guideline
+# [19] (Ponikowski et al., 2016)
